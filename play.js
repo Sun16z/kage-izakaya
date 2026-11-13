@@ -122,7 +122,7 @@ function beginAttack(P,on){
   G.swings++;
   if (on){ G.beatSw++; const dr = $('drum'); dr.classList.add('hit'); setTimeout(() => dr.classList.remove('hit'), 160); }
   pop(MOVES[P.idx-1].name + (on ? '・合拍' : ''), P.x, 2.9, P.z, on ? 'gold' : 'move');
-  AU.slash(on); AU.kiai(P.idx, P.pi === 1);
+  AU.slash(on);   // 出刀只有刀聲，不喊
 }
 function tryAttack(P){
   if (P.state === 'hurt' || P.state === 'dash') return;
@@ -391,7 +391,7 @@ function moveTo(e,tx,tz,sp,dt){
 }
 function startWindup(e,t,atk){
   e.state = 'windup'; e.t = e.t0 = t*DIFF.wind; e.atk = atk; G.attackers++; AU.warn();
-  if (e.ai === 's' || e.big) AU.growl(); else if (atk === 'slash') AU.grunt(); else if (atk === 'chain') AU.chain(); else if (atk === 'bomb') AU.fuse();
+  if (e.ai === 's' || e.big) AU.growl(); else if (atk === 'chain') AU.chain(); else if (atk === 'bomb') AU.fuse();
 }
 function blinkTo(e,x,z,P){
   const pink = STAGES[G.si].theme === 'garden';

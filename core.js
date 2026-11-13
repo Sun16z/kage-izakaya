@@ -83,11 +83,13 @@ let DIFF = DIFFS[1];
 // ───────────────────────── 音訊：鼓、旋律、人聲全部即時合成 ─────────────────────────
 const AU = (() => {
   let ctx = null, master, rev, nb, t0 = 0, step = 0, lat = 0, beat = 60/112, variant = 0;
+  let sfxBus, musicBus, cur;   // 音效與配樂分開兩軌，各自控制音量
+  const SFX_VOL = .42, MUSIC_VOL = 1;
   const D4=293.66,Eb4=311.13,G4=392,A4=440,Bb4=466.16,D5=587.33,Eb5=622.25;
   const MEL = [D5,0,Bb4,A4, 0,G4,A4,0,  Eb4,0,D4,0, A4,0,0,0,  D5,0,Eb5,D5, 0,Bb4,A4,0,  G4,A4,Bb4,0, A4,0,0,0];
   const TRANS = [1, 1.1225, .8909, 1.0595, 1.1892, .9439, 1.1225, 1.2599, .8409, 1.3348];
   // 每個聲音都接到主輸出，wet 是送進殘響的比例（讓聲音像在木造房間或山谷裡）
-  function bus(wet){ const g = ctx.createGain(); g.connect(master); if (wet){ const w = ctx.createGain(); w.gain.value = wet; g.connect(w); w.connect(rev); } return g; }
+  function bus(wet){ const g = ctx.createGain(); g.connect(cur); if (wet){ const w = ctx.createGain(); w.gain.value = wet; g.connect(w); w.connect(rev); } return g; }
   function noise(t,dur,type,f,q,vol,f2,wet){
     const s = ctx.createBufferSource(); s.buffer = nb; s.loop = true;
     const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f,t);
@@ -143,6 +145,15 @@ const AU = (() => {
     o.connect(bp); bp.connect(g); g.connect(out); o.start(t); o.stop(t+.45);
     noise(t,.018,'bandpass',2400,1.2,v*1.6);
   }
+  // 鋼琴：幾個泛音疊起來，敲下去很快變小聲，再慢慢消失
+  function piano(t,f,v,dur){
+    const out = bus(.4), lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(Math.min(6000, f*9),t); lp.frequency.exponentialRampToValueAtTime(Math.max(500, f*2.5), t+dur); lp.connect(out);
+    [[1,1],[2,.45],[3,.2],[4,.1]].forEach(([m,a],i) => { const o = ctx.createOscillator(); o.type = i ? 'sine' : 'triangle'; o.frequency.value = f*m*(1+i*.0007);
+      const g = ctx.createGain(); g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(v*a,t+.006); g.gain.exponentialRampToValueAtTime(v*a*.35,t+.18); g.gain.exponentialRampToValueAtTime(.0002,t+dur/(1+i*.35));
+      o.connect(g); g.connect(lp); o.start(t); o.stop(t+dur+.05); });
+  }
+  // 和弦進行：Dm → E♭ → Gm → Asus4，跟旋律用的日本音階相合。每組是 [低音, 三個和弦音]
+  const CHORDS = [[73.42,[220,293.66,349.23]], [77.78,[196,233.08,311.13]], [98,[196,233.08,293.66]], [110,[220,293.66,329.63]]];
   const don = (t,v) => { tone(t,'sine',135,46,.36,v,.18); tone(t,'sine',210,70,.09,v*.5); noise(t,.035,'lowpass',520,1,v*.8); };   // 太鼓
   const ka  = (t,v) => { tone(t,'sine',1250,1050,.035,v*.9,.2); noise(t,.03,'bandpass',2600,5,v*.8); };                          // 敲鼓框
   const clack = (t,v) => { tone(t,'sine',1900,1650,.03,v,.5); tone(t,'sine',3300,3000,.022,v*.5,.5); noise(t,.028,'bandpass',2700,6,v*1.1,null,.5); };   // 拍子木
@@ -158,10 +169,15 @@ const AU = (() => {
     if (pat===1 && (s===1 || s===5)) ka(t,.12);
     if (pat===3 || v >= 7){ if (s===6) don(t,.5); if (s===1 || s===5) ka(t,.15); if (s===7) don(t,.33); }
     if (bar >= 1) { const f = MEL[(i + v*8) % 32]; if (f) shami(t,f*tr*.5,.13); }
+    // 鋼琴伴奏：每小節第一拍彈整個和弦，第三拍輕輕補一下；部分關卡改成分解和弦
+    const [bass, notes] = CHORDS[Math.floor(((i + v*8) % 32)/8)];
+    if (pat === 2){ if (s % 2 === 0) piano(t, notes[(s/2) % 3]*tr*(s === 6 ? 2 : 1), .075, beat*2.2); if (s === 0) piano(t, bass*tr, .11, beat*3.6); }
+    else { if (s === 0){ piano(t, bass*tr, .12, beat*3.6); notes.forEach((f,k) => piano(t+k*.012, f*tr, .075, beat*3.2)); }
+      if (s === 4) notes.forEach((f,k) => piano(t+k*.012, f*tr, .045, beat*1.8)); if (s === 7 && bar%2) piano(t, notes[2]*tr*2, .04, beat*.9); }
     if (s===0 && bar%4===2) flute(t, [D4,A4,G4,Bb4][Math.floor(bar/4)%4]*tr, beat*3.4, .07);   // 遠處的尺八長音
     if (s===0 && bar%8===0 && bar) gong(t,.1);
   }
-  function sched(){ while (t0 + step*beat/2 < ctx.currentTime + .15) { playStep(step, t0 + step*beat/2); step++; } }
+  function sched(){ cur = musicBus; while (t0 + step*beat/2 < ctx.currentTime + .15) { playStep(step, t0 + step*beat/2); step++; } cur = sfxBus; }
   const now = () => ctx.currentTime;
   const phrase = (notes,len,vol) => { let t = now()+.02; for (const f of notes){ flute(t,f,len,vol); t += len*.82; } };
   return {
@@ -170,6 +186,7 @@ const AU = (() => {
       ctx = new C();
       const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = .004; comp.release.value = .18; comp.connect(ctx.destination);
       master = ctx.createGain(); master.gain.value = .6; master.connect(comp);
+      sfxBus = ctx.createGain(); sfxBus.gain.value = SFX_VOL; sfxBus.connect(master); musicBus = ctx.createGain(); musicBus.gain.value = MUSIC_VOL; musicBus.connect(master); cur = sfxBus;
       nb = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
       const d = nb.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
       // 殘響：用衰減的雜訊當脈衝響應
@@ -185,7 +202,9 @@ const AU = (() => {
     frac(){ if (!ctx) return 0; const b = (ctx.currentTime - lat - t0)/beat; return b - Math.floor(b); },
     // 揮刀：破風聲加一絲刀鳴
     slash(on){ if(!ctx)return; const t=now(); noise(t,.13,'bandpass',900,1.4,.34,4800); noise(t+.03,.09,'highpass',5200,.7,.1); tone(t+.02,'sine',on?6200:5300,null,.16,on?.05:.03,.3); },
-    hit(on){ if(!ctx)return; const t=now(); tone(t,'sine',120,44,.14,.7); noise(t,.06,'lowpass',1500,1,.5); noise(t,.02,'highpass',3500,.7,.3); if(on){ clack(t,.2); bell(t,2100,.07,.5); } },
+    // 命中：悶實的打擊聲，加上刀刃碰撞的一聲脆響
+    hit(on){ if(!ctx)return; const t=now(); tone(t,'sine',120,44,.14,.7); noise(t,.06,'lowpass',1500,1,.5); noise(t,.02,'highpass',3500,.7,.35);
+      tone(t,'triangle',3100,2500,.09,.16,.25); tone(t,'triangle',4650,null,.06,.08,.25); if(on){ clack(t,.2); bell(t,2100,.07,.5); } },
     block(){ if(!ctx)return; clang(now(),.2); },
     shur(){ if(!ctx)return; const t=now(); for (let i=0;i<4;i++) noise(t+i*.022,.02,'bandpass',3600+i*300,3,.2); noise(t,.11,'highpass',6000,.7,.07); },
     smoke(){ if(!ctx)return; const t=now(); tone(t,'sine',75,34,.32,.8,.3); noise(t,.5,'lowpass',950,1,.55,140,.3); noise(t+.04,.9,'highpass',4200,.7,.07,null,.4); },
@@ -211,8 +230,8 @@ const AU = (() => {
       else if (idx===3){ shout(t,{ v1:'i', v2:'a', dur:.34, vol:.62, voiced:.65, f0:215*k, f1:290*k }); shout(t+.3,{ v1:'a', dur:.1, vol:.5, voiced:.4, f0:250*k, f1:170*k, onset:'h' }); }
       else if (idx===4) shout(t,{ v1:'o', v2:'u', dur:.13, vol:.55, voiced:.55, f0:165*k, f1:140*k, onset:'t' });
       else shout(t,{ v1:'u', dur:.1, vol:.4, voiced:0, onset:'h' }); },
-    hurtV(){ if(!ctx)return; shout(now(),{ v1:'u', dur:.17, vol:.55, voiced:.5, f0:150, f1:112, onset:'t' }); },
-    dieV(){ if(!ctx)return; const k=rand(.8,1.15); shout(now(),{ v1:'u', v2:'a', dur:.36, vol:.45, voiced:.4, f0:135*k, f1:82*k, wet:.4 }); },
+    hurtV(){ if(!ctx)return; shout(now(),{ v1:'u', dur:.17, vol:.36, voiced:.5, f0:150, f1:112, onset:'t' }); },
+    dieV(){ if(!ctx)return; const k=rand(.8,1.15); shout(now(),{ v1:'u', v2:'a', dur:.36, vol:.3, voiced:.4, f0:135*k, f1:82*k, wet:.4 }); },
     grunt(){ if(!ctx)return; shout(now(),{ v1:'u', dur:.09, vol:.3, voiced:.2, f0:140, onset:'h' }); },
     growl(){ if(!ctx)return; shout(now(),{ v1:'o', dur:.5, vol:.6, voiced:.9, f0:88, f1:76, wet:.4 }); },
     // 過場的聲音提示：用尺八樂句、拍子木與銅鑼代替語音
