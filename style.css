@@ -169,3 +169,11 @@ body.touch #touchUI{display:block;position:fixed;inset:0;z-index:3;pointer-event
   #ups{gap:8px;margin-top:10px}#ups button{width:auto;padding:9px}#ups b{font-size:17px;margin-bottom:3px}#ups span{font-size:12px}
   .btn{font-size:14px;padding:9px 16px}
 }
+
+/* ───── 連線 ───── */
+#netCode{font:inherit;font-size:18px;letter-spacing:.3em;width:92px;text-align:center;color:var(--paper);background:rgba(0,0,0,.4);border:1px solid rgba(241,227,196,.3);padding:6px 4px;-webkit-user-select:text;user-select:text}
+#netCode:focus{outline:2px solid var(--gold)}
+#netMsg{font-size:13px;line-height:1.6;color:var(--gold);letter-spacing:.06em;margin:-2px 0 8px 62px;min-height:1em;word-break:break-all;-webkit-user-select:text;user-select:text}
+#netMsg b{font-size:22px;letter-spacing:.3em;color:var(--paper);font-weight:600;margin:0 6px}
+.seg button:disabled{opacity:.4;cursor:default}
+@media (max-height:520px){ #netCode{font-size:14px;width:70px;padding:4px} #netMsg{font-size:11px;margin-left:44px} #netMsg b{font-size:16px} }

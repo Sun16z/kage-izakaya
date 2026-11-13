@@ -38,6 +38,11 @@ document.body.insertAdjacentHTML('beforeend', `
       <p class="sub">忍者節拍動作・全十關　${IS3D ? '３Ｄ版' : '２.５Ｄ版'}</p>
       <div class="row"><span class="rl">難度</span><div class="seg" id="segDiff"></div></div>
       <div class="row"><span class="rl">人數</span><div class="seg" id="segNp"></div></div>
+      ${window.HASHMODE ? '' : `<div class="row" id="netRow"><span class="rl">連線</span><div class="seg">
+        <button id="netHost">開房間<small>當房主，邀朋友加入</small></button>
+        <input id="netCode" inputmode="numeric" maxlength="4" placeholder="房號" autocomplete="off">
+        <button id="netJoin">加入<small>輸入朋友的房號</small></button></div></div>
+      <div id="netMsg"></div>`}
       <div id="stages"></div>
       <div class="keys">
         <div><b class="p1">壹</b> WASD 移動　J 刀（連按五連擊）　K 瞬身　L 手裏劍　空白 煙霧　U 分身斬</div>
@@ -259,7 +264,8 @@ const G = {
   freeze:0, slowT:0, shake:0, zi:0, wi:0, zoneActive:false, lockRight:20, halfW:8.8, events:[], attackers:0, hazT:6, flash:0,
 };
 function resize(){
-  renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  const w = innerWidth || 800, h = innerHeight || 600;   // 分頁在背景時視窗大小可能是 0，避免除以零
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
   G.halfW = Math.min(11, Math.tan(19*PI/180) * 14.36 * camera.aspect);
 }
 addEventListener('resize', resize); resize();
@@ -367,6 +373,7 @@ function pose(f,dt,armR,armL,lean,twist){
   if (f.scarf){ f.scarf.rotation.z = Math.sin(G.rt*9+f.x)*.18 + (f.moving ? .1 : -.35); f.scarf2.rotation.z = Math.sin(G.rt*9+1)*.3 - .1; }
   const fl = f.flash > 0 ? 1 : 0;
   f.mats.body.emissive.setRGB(Math.max(fl, f.warn*.8), fl, fl);
+  f.pp = [armR, armL, lean||0, twist||0];   // 記下這一格的姿勢，連線時傳給另一支手機照著擺
 }
 
 // ───────────────────────── 特效 ─────────────────────────

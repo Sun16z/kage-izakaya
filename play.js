@@ -2,14 +2,15 @@
 // 玩法：輸入、玩家（單人／雙人）、敵人、關卡流程、介面、主迴圈。
 
 // ───────────────────────── 輸入（鍵盤＋手把）─────────────────────────
-const IN = [{ k:{}, p:{}, g:{}, t:{} }, { k:{}, p:{}, g:{}, t:{} }];
+const IN = [{ k:{}, p:{}, g:{}, t:{}, n:{} }, { k:{}, p:{}, g:{}, t:{}, n:{} }];
+let NET = null, NID = 0;   // NET：連線模組（net.js 載入後才有）；NID：敵人、飛鏢等物件的編號，連線時用來對應
 const KEY1 = { KeyA:'L',KeyD:'R',KeyW:'U',KeyS:'D',KeyJ:'atk',KeyK:'dash',KeyL:'shur',Space:'smoke',KeyU:'ult' };
 const KEY1X = { ArrowLeft:'L',ArrowRight:'R',ArrowUp:'U',ArrowDown:'D',KeyZ:'atk',KeyX:'dash',KeyC:'shur',KeyV:'ult' };   // 單人時的備用鍵
 const KEY2 = { ArrowLeft:'L',ArrowRight:'R',ArrowUp:'U',ArrowDown:'D',Comma:'atk',Period:'dash',Slash:'shur',ShiftRight:'smoke',Enter:'ult' };
 const camKeys = {};
 function keyOwner(code){
   if (KEY1[code]) return [0, KEY1[code]];
-  if (G.np === 2){ if (KEY2[code]) return [1, KEY2[code]]; } else if (KEY1X[code]) return [0, KEY1X[code]];
+  if (G.np === 2 && !(NET && NET.on)){ if (KEY2[code]) return [1, KEY2[code]]; } else if (KEY1X[code]) return [0, KEY1X[code]];
   return null;
 }
 addEventListener('keydown', e => {
@@ -34,7 +35,7 @@ function pollPads(dt){
   let pads = []; try { pads = [...navigator.getGamepads()].filter(Boolean); } catch(e){}
   IN[0].g = {}; IN[1].g = {};
   // 單人：第一支手把給壹。雙人：一支手把給貳（壹用鍵盤），兩支則各一支
-  const map = G.np === 2 ? (pads.length >= 2 ? [[pads[0],0],[pads[1],1]] : pads.length ? [[pads[0],1]] : []) : (pads.length ? [[pads[0],0]] : []);
+  const map = (G.np === 2 && !(NET && NET.on)) ? (pads.length >= 2 ? [[pads[0],0],[pads[1],1]] : pads.length ? [[pads[0],1]] : []) : (pads.length ? [[pads[0],0]] : []);
   for (const [pad,i] of map){
     const g = IN[i].g, ax = pad.axes[0] || 0, ay = pad.axes[1] || 0, b = n => pad.buttons[n] && pad.buttons[n].pressed;
     g.L = ax < -.35 || b(14); g.R = ax > .35 || b(15); g.U = ay < -.35 || b(12); g.D = ay > .35 || b(13);
@@ -43,7 +44,7 @@ function pollPads(dt){
     if (IS3D && Math.abs(pad.axes[2] || 0) > .25) cam.yaw += pad.axes[2] * 2.4 * dt;
   }
 }
-const held = (i,n) => IN[i].k[n] || IN[i].g[n] || IN[i].t[n];
+const held = (i,n) => IN[i].k[n] || IN[i].g[n] || IN[i].t[n] || IN[i].n[n];
 
 // 觸控：左下角拖曳當搖桿，右下角按鈕出招
 if (TOUCH){
@@ -94,7 +95,8 @@ const targetable = e => !e.dead && e.state !== 'lurk' && e.state !== 'drop' && e
 function inputDir(P){
   const i = P.pi, f = (held(i,'U')?1:0)-(held(i,'D')?1:0), r = (held(i,'R')?1:0)-(held(i,'L')?1:0); if (!f && !r) return null;
   if (!IS3D){ const n = Math.hypot(r,f); return [r/n, -f/n]; }
-  const c = Math.cos(cam.yaw), s = Math.sin(cam.yaw), x = c*f - s*r, z = s*f + c*r, n = Math.hypot(x,z);
+  const yw = NET && NET.host && i === 1 ? (IN[1].yaw || 0) : cam.yaw;   // 連線時，夥伴的方向以他自己的鏡頭為準
+  const c = Math.cos(yw), s = Math.sin(yw), x = c*f - s*r, z = s*f + c*r, n = Math.hypot(x,z);
   return [x/n, z/n];
 }
 // 3D 的自動瞄準：在 base 方向 cone 弧度內、距離 maxD 以內最近的敵人
@@ -126,7 +128,8 @@ function beginAttack(P,on){
 }
 function tryAttack(P){
   if (P.state === 'hurt' || P.state === 'dash') return;
-  const on = Math.abs(AU.offset()) < DIFF.beat*UP.beatWin;
+  // 連線時，夥伴的合拍是在他自己的手機上判定的，不受網路延遲影響
+  const on = P.netBeat !== undefined ? P.netBeat : Math.abs(AU.offset()) < DIFF.beat*UP.beatWin; P.netBeat = undefined;
   if (P.state === 'atk'){ if (!P.buf){ P.buf = true; P.bufOn = on; } return; }
   beginAttack(P,on);
 }
@@ -259,11 +262,14 @@ function updPlayer(P,dt){
 // ───────────────────────── 飛行道具、補給、落點攻擊 ─────────────────────────
 const shots = [], pickups = [], hazards = [];
 const starMat = new THREE.MeshBasicMaterial({ color: 0xe9eff6 }), starMatE = new THREE.MeshBasicMaterial({ color: 0xdca6ff });
-function shoot(x,z,a,speed,owner,dmg){
-  const g = new THREE.Group(), m = owner === 'e' ? starMatE : starMat;
+function starMesh(enemy){
+  const g = new THREE.Group(), m = enemy ? starMatE : starMat;
   if (IS3D){ part(g,GEO.box,m,.46,.03,.1,0,0,0); part(g,GEO.box,m,.1,.03,.46,0,0,0); } else { part(g,GEO.box,m,.42,.1,.03,0,0,0); part(g,GEO.box,m,.1,.42,.03,0,0,0); }
-  g.position.set(x,1.3,z); scene.add(g);
-  shots.push({ g, x, z, x0:x, z0:z, a, vx:Math.cos(a)*speed, vz:Math.sin(a)*speed, owner, dmg, life:2.4, dead:false }); AU.shur();
+  scene.add(g); return g;
+}
+function shoot(x,z,a,speed,owner,dmg){
+  const g = starMesh(owner === 'e'); g.position.set(x,1.3,z);
+  shots.push({ id:++NID, g, x, z, x0:x, z0:z, a, vx:Math.cos(a)*speed, vz:Math.sin(a)*speed, owner, dmg, life:2.4, dead:false }); AU.shur();
 }
 function updShots(dt){
   for (let i = shots.length-1; i >= 0; i--){
@@ -280,10 +286,8 @@ function updShots(dt){
   }
 }
 const riceMat = new THREE.MeshBasicMaterial({ color: 0xf6f1e4 }), noriMat = new THREE.MeshBasicMaterial({ color: 0x15201a });
-function dropRice(x,z){
-  const g = new THREE.Group(); part(g,GEO.cone,riceMat,.3,.42,.3,0,0,0).rotation.y = PI/4; part(g,GEO.box,noriMat,.32,.16,.32,0,-.1,0);
-  g.position.set(x,.5,z); scene.add(g); pickups.push({ g, x, z, life:14 });
-}
+function riceMesh(){ const g = new THREE.Group(); part(g,GEO.cone,riceMat,.3,.42,.3,0,0,0).rotation.y = PI/4; part(g,GEO.box,noriMat,.32,.16,.32,0,-.1,0); scene.add(g); return g; }
+function dropRice(x,z){ const g = riceMesh(); g.position.set(x,.5,z); pickups.push({ id:++NID, g, x, z, life:14 }); }
 function updPickups(dt){
   for (let i = pickups.length-1; i >= 0; i--){
     const p = pickups[i]; p.life -= dt; p.g.position.y = .5 + Math.sin(G.rt*4+p.x)*.1; p.g.rotation.y += dt*2; p.g.visible = p.life > 3 || Math.floor(G.rt*8)%2 === 0;
@@ -294,10 +298,13 @@ function updPickups(dt){
 }
 // 落點攻擊：地上先出現圈，時間到才命中。火矢、落雷、炸彈共用
 const HAZ = { arrow:{ color:0xff3b2a, r:1.2, dmg:12 }, thunder:{ color:0x9fd0ff, r:1.5, dmg:14 }, bomb:{ color:0xff8a2a, r:1.6, dmg:14 } };
-function addHazard(x,z,kind,t,owner){
+function hazMesh(kind){
   const c = HAZ[kind], m = new THREE.Mesh(GEO.ring, new THREE.MeshBasicMaterial({ color:c.color, transparent:true, opacity:.9, depthWrite:false, side:THREE.DoubleSide }));
-  m.rotation.x = -PI/2; m.position.set(x,.05,z); m.scale.setScalar(c.r); scene.add(m);
-  hazards.push({ m, x, z, t, kind, owner, fired:false });
+  m.rotation.x = -PI/2; m.scale.setScalar(c.r); scene.add(m); return m;
+}
+function addHazard(x,z,kind,t,owner){
+  const m = hazMesh(kind); m.position.set(x,.05,z);
+  hazards.push({ id:++NID, m, x, z, t, kind, owner, fired:false });
 }
 function volley(kind){
   const pts = alive().map(p => [p.x, p.z]), L = lead();
@@ -331,7 +338,7 @@ function spawn(kind,where,i,at){
   const ai = kind === 'd' ? 'g' : kind, L = lead();
   const hp = ai === 'c' ? 1 : Math.round(HP[ai] * DIFF.hp * (1 + .05*G.si) * (G.np === 2 ? 1.5 : 1));
   const e = Object.assign(makeFighter(ai === 'c' ? 'j' : ai), {
-    ai, brain: ai === 'x' ? 'j' : ai, big: ai === 'x', hp, maxHp:hp, state:'chase', t:0, cd:rand(.5,1.4), cd2:rand(2,4), tp:rand(3,5), dead:false,
+    id:++NID, ai, brain: ai === 'x' ? 'j' : ai, big: ai === 'x', hp, maxHp:hp, state:'chase', t:0, cd:rand(.5,1.4), cd2:rand(2,4), tp:rand(3,5), dead:false,
     slotA:rand(0,2*PI), slot:rand(0,1.6), zoff:rand(-1.6,1.6), lost:0, guard:3, guardT:0, called:false, hitP:false, side:0, phase:0, hits:0, n:0, tg:L,
   });
   e.th = e.big ? [.75,.5,.25] : [.66,.33];
@@ -636,6 +643,7 @@ const bestKey = i => DIFF.id + G.np + ':' + i;
 const fmtTime = t => { const m = Math.floor(t/60), s = t - m*60; return String(m).padStart(2,'0') + ':' + s.toFixed(1).padStart(4,'0'); };
 function drawTitle(){
   DIFF = DIFFS[SAVE.diff] || DIFFS[1]; G.np = SAVE.np === 2 ? 2 : 1;
+  if (NET && NET.host && NET.conn) G.np = 2;   // 連線中：固定兩人
   $('segDiff').innerHTML = DIFFS.map((d,i) => `<button class="${i === SAVE.diff ? 'on' : ''}" data-i="${i}">${d.name}<small>${d.note}</small></button>`).join('');
   $('segNp').innerHTML = [1,2].map(n => `<button class="${n === G.np ? 'on' : ''}" data-n="${n}">${n === 1 ? '單人' : '雙人合作'}<small>${n === 1 ? '一人潛入' : TOUCH ? '需要鍵盤或手把' : '同一畫面並肩作戰'}</small></button>`).join('');
   $('segDiff').querySelectorAll('button').forEach(b => b.onclick = () => { SAVE.diff = +b.dataset.i; saveNow(); drawTitle(); });
@@ -685,10 +693,12 @@ function updZones(dt){
 function breakPanel(x,s){ const p = panels[x+','+s]; if (p && p.visible){ p.visible = false; paperFx(x, s*EDGE, .9, 0, 0, -s, 26); AU.paper(); G.shake = Math.max(G.shake,.25); } }
 function breakGate(x){ const g = gates[x]; if (g && g.visible){ g.visible = false; paperFx(x, 0, .2, EDGE, 1, 0, 90, gateColors); AU.paper(); G.shake = Math.max(G.shake,.4); } }
 function startRun(i){
-  if (G.mode !== 'title' || i > SAVE.unlocked) return;
+  if (G.mode !== 'title' || i > SAVE.unlocked || (NET && NET.guest)) return;   // 連線時由房主選關
+  if (NET && NET.host && NET.conn) G.np = 2;
   UP = Object.assign({}, UP0); G.total = 0; G.totalTime = 0; AU.init(); startStage(i); AU.say('いざ、参る', .5);
 }
 function startStage(i){
+  if (NET && NET.guest) return;
   const st = STAGES[i], zs = st.zones;
   for (const e of enemies) disposeFighter(e); enemies.length = 0;
   for (const s of shots) scene.remove(s.g); shots.length = 0;
@@ -709,6 +719,11 @@ function startStage(i){
     freeze:0, slowT:0, shake:0, zi:0, wi:0, zoneActive:false, lockRight:zs[0].right, hazT:6, flash:0 });
   cam.x = IS3D ? PL[0].x : XA + .2 + G.halfW; cam.z = 0; cam.yaw = 0;
   AU.setStage(st.bpm, i);
+  stageChrome(i);
+}
+// 關卡開場的介面：關卡名、橫幅、玩家的血條面板
+function stageChrome(i){
+  const st = STAGES[i];
   $('stage').textContent = st.no + '　' + st.name + '　' + DIFF.name;
   $('banS').textContent = st.no; $('banB').textContent = st.name;
   const b = $('banner'); b.classList.remove('go'); void b.offsetWidth; b.classList.add('go');
@@ -733,14 +748,14 @@ function showClear(){
     G.mode = 'ending';
     $('endTitle').textContent = '忍務達成'; $('endSub').textContent = `十關全破　${DIFF.name}　評價 ${r}　總分 ${G.total}　總時間 ${fmtTime(G.totalTime)}`;
     $('endStats').innerHTML = stats; $('retryBtn').style.display = 'none'; $('titleBtn').textContent = '回標題　Enter';
-    $('end').classList.remove('hidden'); return;
+    $('end').classList.remove('hidden'); if (NET && NET.host) NET.ui('end'); return;
   }
   G.mode = 'pick';
   $('rank').textContent = r; $('clearTitle').textContent = STAGES[i].name + '　完'; $('clearStats').innerHTML = stats;
   choices = UPGRADES.slice().sort(() => Math.random()-.5).slice(0,3);
   $('ups').innerHTML = choices.map((u,k) => `<button data-k="${k}"><i>${k+1}</i><b>${u.name}</b><span>${u.text}</span></button>`).join('');
   $('ups').querySelectorAll('button').forEach(b => b.onclick = () => pickUp(+b.dataset.k));
-  $('clear').classList.remove('hidden');
+  $('clear').classList.remove('hidden'); if (NET && NET.host) NET.ui('clear');
 }
 function pickUp(k){ if (G.mode !== 'pick') return; choices[k].ap(); AU.pick(); startStage(G.si+1); }
 function showOver(){
@@ -749,7 +764,7 @@ function showOver(){
   $('endTitle').textContent = '忍道未竟'; $('endSub').textContent = STAGES[G.si].no + '　' + STAGES[G.si].name + '　' + DIFF.name;
   $('endStats').innerHTML = `時間<b>${fmtTime(G.time)}</b><br>得分<b>${G.score}</b>　擊倒<b>${G.kills}</b>　最高連段<b>${G.maxCombo}</b><br>合拍率<b>${Math.round(rate*100)}%</b>`;
   $('retryBtn').style.display = ''; $('titleBtn').textContent = '回標題　T';
-  $('end').classList.remove('hidden');
+  $('end').classList.remove('hidden'); if (NET && NET.host) NET.ui('end');
 }
 $('retryBtn').onclick = () => { if (G.mode === 'overMenu') startStage(G.si); };
 $('titleBtn').onclick = () => location.reload();
@@ -772,7 +787,7 @@ function updHud(){
     $('hp'+i).style.width = (P.hp/UP.hpMax*100) + '%'; $('ki'+i).style.width = P.ki + '%'; $('kib'+i).classList.toggle('full', P.ki >= 100);
     let s = ''; for (let k=0;k<UP.shurMax;k++) s += `<b class="${k < P.shur ? '' : 'off'}"></b>`; $('sh'+i).innerHTML = s;
     const sm = $('sm'+i); sm.textContent = P.dead ? '倒下' : P.smokeCD > 0 ? '煙 ' + Math.ceil(P.smokeCD) : '煙 ●'; sm.classList.toggle('ready', !P.dead && P.smokeCD <= 0); }
-  if (TOUCH) $('btns').querySelector('.b-ult').classList.toggle('ready', PL[0].ki >= 100);
+  if (TOUCH) $('btns').querySelector('.b-ult').classList.toggle('ready', PL[NET && NET.guest ? 1 : 0].ki >= 100);
   $('score').textContent = String(G.score).padStart(6,'0');
   $('combo').textContent = G.combo > 1 ? G.combo + ' 連' : '';
   if (boss) $('bhp').style.width = Math.max(0, boss.hp/boss.maxHp*100) + '%';
@@ -789,19 +804,23 @@ function frame(now){
   if (G.freeze > 0){ G.freeze -= raw; dt = 0; }
   if (G.slowT > 0){ G.slowT -= raw; dt *= .3; }
   if (IS3D) cam.yaw += ((camKeys.KeyE?1:0)-(camKeys.KeyQ?1:0)) * 2.2 * raw;
-  if (G.mode === 'play') G.time += raw;
+  const guest = NET && NET.guest;   // 加入房間的一方不跑模擬，只照房主傳來的狀態畫
+  if (G.mode === 'play' && !guest) G.time += raw;
   const running = G.mode === 'play' || G.mode === 'clear' || G.mode === 'over';
-  if (running && dt > 0){
+  if (guest) NET.guestFrame(raw);
+  else if (running && dt > 0){
     for (const P of active()) updPlayer(P,dt);
     updEnemies(dt); updShots(dt); updPickups(dt); updHazards(dt); updZones(dt);
     if (G.comboT > 0){ G.comboT -= dt; if (G.comboT <= 0) G.combo = 0; }
   }
-  for (const n of IN) n.p = {};
+  if (NET && NET.on) NET.tick(raw);
+  if (dt > 0 || !running || guest) for (const n of IN) n.p = {};   // 命中停頓的那幾格不清掉按鍵，免得剛好按下的招式被吃掉
   updParts(dt || raw*.2);
   $('veil').style.opacity = alive().some(p => p.stealth > 0) ? 1 : 0;
 
   // 鏡頭：對準還站著的玩家們的中心
-  const ps = alive().length ? alive() : active();
+  let ps = alive().length ? alive() : active();
+  if (NET && NET.on && IS3D){ const me = PL[guest ? 1 : 0]; if (me.on && !me.dead) ps = [me]; }   // 連線的 3D 版：各自的鏡頭跟著自己
   let mx = 0, mz = 0; for (const p of ps){ mx += p.x; mz += p.z; } mx /= ps.length; mz /= ps.length;
   G.shake = Math.max(0, G.shake - raw*1.6);
   const sx = (Math.random()-.5)*G.shake*.6, sy = (Math.random()-.5)*G.shake*.6;
@@ -816,7 +835,7 @@ function frame(now){
     const zs = Z(), left = G.zi ? zs[G.zi-1].right : XA + .2;
     let minC = (G.zoneActive ? left : XA + .2) + G.halfW, maxC = G.lockRight - G.halfW;
     if (minC > maxC) minC = maxC = (minC+maxC)/2;
-    cam.x = lerp(cam.x, clamp(mx + (ps.length === 1 ? faceOf(ps[0])*1.2 : 0), minC, maxC), Math.min(1, raw*4));
+    cam.x = guest ? lerp(cam.x, NET.cx, Math.min(1, raw*8)) : lerp(cam.x, clamp(mx + (ps.length === 1 ? faceOf(ps[0])*1.2 : 0), minC, maxC), Math.min(1, raw*4));
     camera.position.set(cam.x+sx, 5+sy, 14); camera.lookAt(cam.x+sx, 1.8+sy, 0);
     rim.position.set(cam.x - 3, 8, -12); rim.target.position.set(cam.x, 1, 0);
   }
