@@ -40,7 +40,7 @@
   function snapshot(){
     return { t:'s',
       g:[G.si, G.mode, G.zi, G.lockRight, G.zoneActive ? 1 : 0, r(G.time), G.score, G.combo, r(cam.x), $('go').classList.contains('on') ? 1 : 0,
-         boss ? [NAMES[boss.ai], r(Math.max(0, boss.hp/boss.maxHp))] : 0, UP.hpMax, UP.shurMax, DIFFS.indexOf(DIFF), UP.beatWin],
+         boss ? [NAMES[boss.ai], r(Math.max(0, boss.hp/boss.maxHp))] : 0, UP.hpMax, UP.shurMax, DIFFS.indexOf(DIFF), UP.beatWin, PL[0].ch, PL[1].ch],
       p: PL.map(P => [...fpack(P), r(P.hp), r(P.ki), P.shur, r(P.smokeCD), P.stealth > 0 ? 1 : 0, P.dead ? 1 : 0]),
       e: enemies.map(e => [e.id, e.ai, ...fpack(e)]),
       s: shots.map(s => [s.id, r(s.x), r(s.z), s.owner === 'e' ? 1 : 0]),
@@ -86,6 +86,7 @@
     const g = s.g;
     if (DIFFS[g[13]]) DIFF = DIFFS[g[13]];
     UP.hpMax = g[11]; UP.shurMax = g[12]; UP.beatWin = g[14];
+    PL.forEach((P,i) => { const ch = g[15+i] || 0; if (P.ch !== ch) setChar(P, ch); });   // 兩邊的角色外觀跟房主一致
     replay(s.ev);
     NET.last = s; NET.cx = g[8];
     if (G.si !== g[0] && g[1] === 'play') guestStage(g[0]);   // 保險：萬一漏了開場事件
@@ -118,6 +119,7 @@
     }
   }
 
+  NET.sendChar = () => { if (NET.guest && NET.conn && NET.conn.open) NET.conn.send({ t:'c', ch:(SAVE.ch && SAVE.ch[0]) || 0 }); };
   // ── 每一格：房主送狀態，加入的一方送操作 ──
   NET.tick = dt => {
     const c = NET.conn; if (!c || !c.open) return;
@@ -138,6 +140,7 @@
   function onData(d){
     if (!d || !d.t) return;
     if (NET.host){
+      if (d.t === 'c'){ NET.guestCh = clamp(d.ch|0, 0, CHARS.length-1); return; }   // 夥伴選的角色
       if (d.t !== 'i') return;
       const n = IN[1].n; n.L = !!d.h[0]; n.R = !!d.h[1]; n.U = !!d.h[2]; n.D = !!d.h[3];
       for (const k of d.p) if (k === 'atk' || k === 'dash' || k === 'shur' || k === 'smoke' || k === 'ult') IN[1].p[k] = true;
@@ -194,7 +197,7 @@
     try { await loadLib(); } catch(e){ return fail({ type:'network' }); }
     const peer = NET.peer = new Peer();
     peer.on('open', () => { const c = peer.connect(PREFIX + code, { reliable:true }); bind(c);
-      c.on('open', () => { NET.on = NET.guest = true; G.np = 2; $('stages').querySelectorAll('button').forEach(b => { b.disabled = true; }); }); });
+      c.on('open', () => { NET.on = NET.guest = true; G.np = 2; drawTitle(); $('stages').querySelectorAll('button').forEach(b => { b.disabled = true; }); NET.sendChar(); }); });
     peer.on('error', e => { NET.peer = null; fail(e); });
   };
 

@@ -38,6 +38,8 @@ document.body.insertAdjacentHTML('beforeend', `
       <p class="sub">忍者節拍動作・全十關　${IS3D ? '３Ｄ版' : '２.５Ｄ版'}</p>
       <div class="row"><span class="rl">難度</span><div class="seg" id="segDiff"></div></div>
       <div class="row"><span class="rl">人數</span><div class="seg" id="segNp"></div></div>
+      <div class="row" id="rowCh0"><span class="rl" id="lblCh0">角色</span><div class="seg" id="segCh0"></div></div>
+      <div class="row" id="rowCh1"><span class="rl">貳</span><div class="seg" id="segCh1"></div></div>
       ${window.HASHMODE ? '' : `<div class="row" id="netRow"><span class="rl">連線</span><div class="seg">
         <button id="netHost">開房間<small>當房主，邀朋友加入</small></button>
         <input id="netCode" inputmode="numeric" maxlength="4" placeholder="房號" autocomplete="off">
@@ -235,7 +237,7 @@ const AU = (() => {
       else if (idx===3){ shout(t,{ v1:'i', v2:'a', dur:.34, vol:.62, voiced:.65, f0:215*k, f1:290*k }); shout(t+.3,{ v1:'a', dur:.1, vol:.5, voiced:.4, f0:250*k, f1:170*k, onset:'h' }); }
       else if (idx===4) shout(t,{ v1:'o', v2:'u', dur:.13, vol:.55, voiced:.55, f0:165*k, f1:140*k, onset:'t' });
       else shout(t,{ v1:'u', dur:.1, vol:.4, voiced:0, onset:'h' }); },
-    hurtV(){ if(!ctx)return; shout(now(),{ v1:'u', dur:.17, vol:.36, voiced:.5, f0:150, f1:112, onset:'t' }); },
+    hurtV(k){ if(!ctx)return; k = k || 1; shout(now(),{ v1:'u', dur:.17, vol:.36, voiced:.5, f0:150*k, f1:112*k, onset:'t' }); },
     dieV(){ if(!ctx)return; const k=rand(.8,1.15); shout(now(),{ v1:'u', v2:'a', dur:.36, vol:.3, voiced:.4, f0:135*k, f1:82*k, wet:.4 }); },
     grunt(){ if(!ctx)return; shout(now(),{ v1:'u', dur:.09, vol:.3, voiced:.2, f0:140, onset:'h' }); },
     growl(){ if(!ctx)return; shout(now(),{ v1:'o', dur:.5, vol:.6, voiced:.9, f0:88, f1:76, wet:.4 }); },
@@ -291,97 +293,209 @@ const GEO = {
 const glowTex = canvasTex(128,128,(g,w,h)=>{ const r = g.createRadialGradient(64,64,0,64,64,64); r.addColorStop(0,'rgba(255,255,255,1)'); r.addColorStop(.25,'rgba(255,255,255,.45)'); r.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0,0,w,h); });
 
 // ───────────────────────── 角色模型 ─────────────────────────
+// 角色由圓滑的膠囊、球體與車削體組成；四肢有膝蓋與手肘兩段關節，頭髮、頭巾、腰帶會隨動作擺動。
 function part(parent,geo,mat,sx,sy,sz,x,y,z){ const m = new THREE.Mesh(geo,mat); m.scale.set(sx,sy,sz); m.position.set(x,y,z); m.castShadow = true; parent.add(m); return m; }
 function pivot(parent,x,y,z){ const g = new THREE.Group(); g.position.set(x,y,z); parent.add(g); return g; }
+const LOW = TOUCH, SEG = LOW ? 8 : 14, _geo = {};
+const geoOf = (key, make) => _geo[key] || (_geo[key] = make());
+// 膠囊：兩端收圓的圓柱，從 y=0 往下長到 y=-len。四肢都用它，關節處才圓滑不露縫
+function capGeo(r1,r2,len){
+  return geoOf('c'+r1+'_'+r2+'_'+len, () => { const pts = [], n = 4;
+    for (let i=0;i<=n;i++){ const a = -PI/2 + i*(PI/2)/n; pts.push(new THREE.Vector2(Math.max(.0001, r2*Math.cos(a)), -len + r2*Math.sin(a))); }
+    for (let i=0;i<=n;i++){ const a = i*(PI/2)/n; pts.push(new THREE.Vector2(Math.max(.0001, r1*Math.cos(a)), r1*Math.sin(a))); }
+    return new THREE.LatheGeometry(pts, SEG); });
+}
+// 車削體：一串 [半徑, 高度] 轉一圈，用來做軀幹、裙擺、盔甲。ps、pl 可以只轉一部分
+function latheGeo(key,prof,ps,pl){ return geoOf('l'+key, () => new THREE.LatheGeometry(prof.map(p => new THREE.Vector2(Math.max(.0001,p[0]), p[1])), SEG+4, ps||0, pl||PI*2)); }
+// 球面的一部分：頭巾、頭髮、面罩都是貼在頭上的球殼
+const sphGeo = (key,ps,pl,ts,tl) => geoOf('s'+key, () => new THREE.SphereGeometry(1, SEG+6, SEG, ps, pl, ts, tl));
+const SKIN = 0xe2b48c;
 const KINDS = {
-  p1:{ body:0x1b1822, acc:0xd8281c, eye:0xffffff, s:1, scarf:1 },
-  p2:{ body:0x18202c, acc:0x2f8be0, eye:0xffffff, s:1, scarf:1 },
-  g:{ body:0x201d27, acc:0x4f6492, eye:0xffb347, s:1 },             // 下忍
-  t:{ body:0x241b2c, acc:0x8a48b4, eye:0xdca6ff, s:.95 },           // 手裏劍忍
-  k:{ body:0x18221c, acc:0x3f9a62, eye:0x9dffb0, s:1.05 },          // 鎖鎌忍
-  b:{ body:0x241820, acc:0xd45a8a, eye:0xffc0dc, s:.95 },           // 霧隱忍
-  f:{ body:0x261a12, acc:0xe8742a, eye:0xffd36a, s:1 },             // 爆彈忍
-  s:{ body:0x241416, acc:0xa81e15, eye:0xff3b2a, s:1.45 },          // 武士
-  j:{ body:0x13131c, acc:0xe8b04a, eye:0xff3b2a, s:1.15, scarf:1 }, // 上忍
-  x:{ body:0x170f22, acc:0x8a3fd0, eye:0xff2a6a, s:1.6, scarf:1 },  // 影將軍
+  g:{ cloth:0x2a2d3c, acc:0x4f6492, eye:0xffb347, s:1,    sword:1.1 },                    // 下忍
+  t:{ cloth:0x2e2438, acc:0x8a48b4, eye:0xdca6ff, s:.96 },                                 // 手裏劍忍
+  k:{ cloth:0x1f2c24, acc:0x3f9a62, eye:0x9dffb0, s:1.04 },                                // 鎖鎌忍
+  b:{ cloth:0x30222c, acc:0xd45a8a, eye:0xffc0dc, s:.96,  sword:1.05 },                    // 霧隱忍
+  f:{ cloth:0x30241a, acc:0xe8742a, eye:0xffd36a, s:1 },                                   // 爆彈忍
+  s:{ cloth:0x2a1a1c, acc:0xa81e15, eye:0xff3b2a, s:1.38, sword:1.5, armor:1 },            // 武士
+  j:{ cloth:0x1a1a26, acc:0xe8b04a, eye:0xff3b2a, s:1.12, sword:1.3, scarf:0xf1e3c4 },     // 上忍
+  x:{ cloth:0x1f1430, acc:0x8a3fd0, eye:0xff2a6a, s:1.5,  sword:1.7, armor:1, scarf:0x8a3fd0 }, // 影將軍
 };
-function makeFighter(kind){
-  const c = KINDS[kind];
+// 可選角色。數值是相對於忍者的倍率；reach 是額外的攻擊距離
+const CHARS = [
+  { id:'ninja',    name:'忍者',   note:'攻守平衡',           spd:1,    hp:1,   reach:0,   ki:1,   dash:1 },
+  { id:'kunoichi', name:'女忍者', note:'腳程快、瞬身快，體力略低', spd:1.12, hp:.88, reach:0,   ki:1,   dash:.72, fem:1 },
+  { id:'hime',     name:'公主',   note:'薙刀打得遠、氣漲得快，腳程略慢', spd:.92,  hp:1,   reach:.45, ki:1.3, dash:1, fem:1 },
+];
+function makeFighter(kind, opt){
+  opt = opt || {};
+  const pc = opt.pi ? 0x2f8be0 : 0xd8281c;   // 玩家的代表色：壹紅、貳藍
+  const c = kind === 'p' ? [
+      { cloth:0x262a3a, acc:pc, scarf:pc, s:1.05, hero:1, sword:1.15 },
+      { cloth:0x38222f, acc:pc, s:1, hero:1, fem:1, pony:1, sword:1.0 },
+      { cloth:opt.pi ? 0x2a4c96 : 0xb23650, acc:0xe8b04a, s:1, hero:1, fem:1, hime:1 } ][opt.ch || 0]
+    : KINDS[kind];
+  const dim = (hex,k) => new THREE.Color(hex).multiplyScalar(k).getHex();
+  const ph = (color,shin,em) => { const m = new THREE.MeshPhongMaterial({ color, shininess:shin||6, specular:0x1a1a1a, side:THREE.DoubleSide }); if (em) m.emissive.setHex(em); m.userData.e = m.emissive.clone(); return m; };
   const mats = {
-    body: new THREE.MeshLambertMaterial({ color: c.body }), acc: new THREE.MeshBasicMaterial({ color: c.acc }),
-    eye: new THREE.MeshBasicMaterial({ color: c.eye }), steel: new THREE.MeshBasicMaterial({ color: 0xe9eff6 }),
-    dark: new THREE.MeshLambertMaterial({ color: 0x0c0a10 }), gold: new THREE.MeshBasicMaterial({ color: 0xe8b04a }),
+    body:ph(c.cloth, c.hime ? 14 : 6, dim(c.cloth, c.hime ? .16 : .06)), dark:ph(dim(c.cloth,.5)), acc:ph(c.acc,16,dim(c.acc,.28)), skin:ph(c.hero ? SKIN : 0x51403a, 10, c.hero ? 0x1c120c : 0),
+    hair:ph(0x17131c,45), steel:ph(0xdfe6ee,90,0x4a545e), gold:ph(0xe8b04a,60,0x3a2a10), eye:new THREE.MeshBasicMaterial({ color: c.hero ? 0xffffff : c.eye }),
   };
+  mats.steel.specular.setHex(0xffffff); mats.hair.specular.setHex(0x555566);
+  if (c.scarf) mats.scarf = ph(c.scarf,10,dim(c.scarf,.3));
+  if (c.hime){ mats.white = ph(0xf4eee2,10,0x2a2826); mats.lip = ph(0xc23a4a,20,0x3a1016); }
+  if (c.hero) mats.pupil = new THREE.MeshBasicMaterial({ color:0x1a1210 });
   const root = new THREE.Group(), model = new THREE.Group(); root.add(model); model.scale.setScalar(c.s);
-  const legL = pivot(model,0,.9,-.13), legR = pivot(model,0,.9,.13);
-  for (const l of [legL,legR]){ part(l,GEO.box,mats.body,.2,.9,.2,0,-.45,0); part(l,GEO.box,mats.dark,.3,.1,.2,.05,-.86,0); part(l,GEO.box,mats.acc,.22,.08,.22,0,-.62,0); }
-  const torso = pivot(model,0,.9,0);
-  part(torso,GEO.box,mats.body,.46,.8,.42,0,.42,0);
-  part(torso,GEO.box,mats.body,.36,.26,.6,0,.72,0);                       // 肩
-  part(torso,GEO.box,mats.acc,.5,.12,.46,0,.1,0); part(torso,GEO.box,mats.acc,.1,.3,.1,.2,-.06,.14);  // 腰帶與帶結
-  part(torso,GEO.sph,mats.body,.25,.25,.25,0,1.06,0);
-  part(torso,GEO.box,mats.body,.2,.2,.3,-.16,1.0,0);                      // 頭巾後擺
-  part(torso,GEO.box,mats.eye,.1,.05,.34,.21,1.09,0);
-  const armL = pivot(torso,0,.74,-.3), armR = pivot(torso,0,.74,.3);
-  for (const a of [armL,armR]){ part(a,GEO.box,mats.body,.15,.7,.15,0,-.35,0); part(a,GEO.box,mats.acc,.17,.14,.17,0,-.52,0); }
-  if (kind === 'k'){
-    part(armR,GEO.box,mats.steel,.55,.05,.04,.28,-.68,0); part(armR,GEO.box,mats.steel,.06,.34,.04,.55,-.52,0); part(armL,GEO.sph,mats.steel,.09,.09,.09,0,-.8,0);
-  } else if (kind === 'f'){
-    part(armL,GEO.sph,mats.dark,.16,.16,.16,0,-.82,0); part(armL,GEO.sph,mats.acc,.05,.05,.05,0,-.64,0);
-  } else if (kind !== 't'){
-    const L = kind==='x' ? 1.8 : kind==='s' ? 1.6 : kind==='j' ? 1.35 : 1.2;
-    part(armR,GEO.box,mats.steel,L,.05,.04,L/2,-.68,0); part(armR,GEO.box,mats.gold,.05,.16,.16,.04,-.68,0); part(armR,GEO.box,mats.dark,.22,.07,.07,-.1,-.68,0);
-    part(torso,GEO.box,mats.dark,.08,1.1,.08,-.26,.5,-.05).rotation.z = .5;   // 背上的刀鞘
+  const HIP = 1.04, fem = !!c.fem, sw = c.armor ? .25 : fem ? .18 : .215, sways = [];
+
+  // ── 腿：大腿、膝蓋、小腿、腳 ──
+  const leg = z => { const hip = pivot(model,0,HIP,z);
+    part(hip, capGeo(.106,.083,.46), c.hime ? mats.white : mats.body, 1,1,1, 0,0,0);
+    const knee = pivot(hip,0,-.48,0);
+    part(knee, capGeo(.079,.057,.42), c.hime ? mats.white : mats.dark, 1,1,1, 0,0,0);
+    if (!LOW && !c.hime) part(knee, GEO.cyl, mats.acc, .082,.045,.082, 0,-.07,0);          // 綁腿
+    part(knee, GEO.sph, c.hime ? mats.white : mats.dark, .115,.05,.07, .045,-.47,0);       // 足袋
+    return [hip, knee]; };
+  const [legL, kneeL] = leg(-.105), [legR, kneeR] = leg(.105);
+
+  // ── 軀幹 ──
+  const torso = pivot(model,0,HIP,0);
+  part(torso, GEO.sph, mats.dark, .15,.13,.18, 0,0,0);
+  part(torso, latheGeo(fem ? 'tf' : 'tm', fem ? [[.14,-.04],[.155,.04],[.115,.2],[.125,.3],[.155,.42],[.14,.5],[.07,.58],[.05,.64]]
+                                              : [[.15,-.04],[.16,.05],[.14,.2],[.165,.34],[.185,.46],[.165,.53],[.08,.6],[.055,.65]]), mats.body, c.armor ? .9 : .74, 1, c.armor ? 1.15 : 1, 0,0,0);
+  part(torso, GEO.cyl, mats.skin, .047,.1,.047, 0,.67,0);                                    // 脖子
+  let skirt = null;
+  if (c.hime){
+    skirt = pivot(model,0,HIP,0);                                                            // 和服下襬：掛在腰上，不跟著上身大幅前傾
+    part(skirt, latheGeo('kimono', [[.27,-1.0],[.24,-.8],[.19,-.4],[.15,-.05],[.13,.12]]), mats.body, .82,1,1, 0,0,0);
+    if (!LOW) part(skirt, latheGeo('hem', [[.275,-1.0],[.262,-.93]]), mats.gold, .82,1,1, 0,0,0);
+    part(torso, GEO.cyl, mats.acc, .1,.17,.135, 0,.22,0);                                    // 腰帶
+    part(torso, GEO.sph, mats.acc, .05,.09,.1, -.12,.26,.07); part(torso, GEO.sph, mats.acc, .05,.09,.1, -.12,.26,-.07);   // 背後的蝴蝶結
+    part(torso, latheGeo('collar', [[.085,.52],[.06,.62]]), mats.white, .8,1,1, 0,0,0);      // 白色內領
+  } else {
+    part(torso, GEO.cyl, mats.acc, fem ? .092 : .112, .065, fem ? .125 : .15, 0,.2,0);       // 腰帶
+    part(torso, latheGeo(fem ? 'flapf' : 'flapm', fem ? [[.21,-.2],[.17,-.06],[.13,.06]] : [[.2,-.26],[.175,-.1],[.15,.04]]), mats.body, .8,1,1.05, 0,.1,0);   // 上衣下襬
+    const knot = pivot(torso,-.07,.2,.11); part(knot, GEO.box, mats.acc, .025,.24,.045, 0,-.12,0);   // 腰帶垂下的一截
+    sways.push({ p:knot, f:6, ph:1, a:.2, rest:.1, mv:.5 });
+    if (c.sword) part(torso, capGeo(.028,.02,.86), mats.dark, 1,1,1, -.14,.6,.15).rotation.x = .42;   // 背上的刀鞘
   }
-  let scarf = null, scarf2 = null;
-  if (c.scarf){
-    if (kind === 'j') mats.scarf = new THREE.MeshBasicMaterial({ color: 0xf1e3c4 });
-    const sm = mats.scarf || mats.acc;
-    part(torso,GEO.box,mats.acc,.52,.07,.52,0,1.17,0);
-    scarf = pivot(torso,-.24,1.17,0); part(scarf,GEO.box,sm,.5,.07,.1,-.25,0,0);
-    scarf2 = pivot(scarf,-.5,0,0); part(scarf2,GEO.box,sm,.45,.06,.08,-.22,0,0);
+  if (c.armor){
+    part(torso, latheGeo('do', [[.165,.14],[.19,.3],[.2,.44],[.17,.52]]), mats.acc, .95,1,1.2, 0,0,0);          // 胴甲
+    part(torso, latheGeo('kusa', [[.27,-.3],[.2,-.05],[.17,.07]]), mats.acc, .9,1,1.15, 0,0,0);                 // 草摺
+    if (!LOW) part(torso, latheGeo('dotrim', [[.2,.44],[.205,.47]]), mats.gold, .95,1,1.2, 0,0,0);
   }
-  if (kind === 's' || kind === 'x'){
-    part(torso,GEO.box,mats.acc,.36,.1,.98,0,.84,0);
-    part(torso,GEO.sph,mats.body,.31,.2,.31,0,1.2,0);
-    part(torso,GEO.box,mats.gold,.05,.34,.06,.14,1.45,.16).rotation.x = .5;
-    part(torso,GEO.box,mats.gold,.05,.34,.06,.14,1.45,-.16).rotation.x = -.5;
-    if (kind === 'x') part(torso,GEO.box,mats.gold,.06,.5,.1,.16,1.52,0);
+  if (kind === 't' && !LOW) part(torso, GEO.box, mats.acc, .02,.6,.05, .1,.32,0).rotation.x = .6;      // 斜背帶
+
+  // ── 手臂：肩、上臂、手肘、前臂、手 ──
+  const arm = z => { const sh = pivot(torso,0,.53,z);
+    if (c.armor) part(sh, GEO.sph, mats.acc, .13,.1,.14, 0,.03,0); else part(sh, GEO.sph, mats.body, .084,.08,.084, 0,0,0);   // 肩（武士是肩甲）
+    part(sh, capGeo(.069,.057,.29), c.pony ? mats.skin : mats.body, 1,1,1, 0,0,0);
+    if (c.pony && !LOW) part(sh, GEO.cyl, mats.acc, .073,.03,.073, 0,-.1,0);
+    const el = pivot(sh,0,-.3,0);
+    part(el, capGeo(.055,.045,.26), c.hime ? mats.body : mats.dark, 1,1,1, 0,0,0);
+    if (c.hime){ part(el, GEO.sph, mats.body, .075,.17,.13, 0,-.13,0);                       // 寬袖
+      const sl = pivot(el,-.02,-.2,0); part(sl, GEO.sph, mats.body, .035,.17,.11, 0,-.13,0); sways.push({ p:sl, f:5, ph:z*9, a:.18, rest:-.15, mv:-.4 }); }
+    else if (!LOW) part(el, GEO.cyl, mats.acc, .059,.11,.059, 0,-.15,0);                     // 護腕
+    part(el, GEO.sph, mats.skin, .046,.055,.04, 0,-.3,0);
+    return [sh, el, pivot(el,0,-.3,0)]; };
+  const [armL, elbowL, handL] = arm(-sw), [armR, elbowR, hand] = arm(sw);
+
+  // ── 武器（握在右手，刀尖朝前）──
+  const rod = (len,r,mat,x) => { const m = part(hand, GEO.cyl, mat, r,len,r, x,0,0); m.rotation.z = PI/2; return m; };
+  if (c.hime){ rod(1.9,.017,mats.dark,.5); part(hand, GEO.box, mats.steel, .5,.07,.012, 1.68,.012,0); rod(.07,.03,mats.gold,1.42); }   // 薙刀
+  else if (c.sword){ const L = c.sword; part(hand, GEO.box, mats.steel, L,.034,.012, .16+L/2,0,0); rod(.014,.05,mats.gold,.15); rod(.24,.02,mats.dark,.03); }
+  else if (kind === 'k'){ rod(.42,.018,mats.dark,.17); part(hand, GEO.box, mats.steel, .05,.3,.012, .38,.13,0).rotation.z = -.35; part(handL, GEO.sph, mats.steel, .06,.06,.06, 0,-.05,0); }
+  else if (kind === 'f'){ part(handL, GEO.sph, mats.dark, .13,.13,.13, 0,-.1,0); part(handL, GEO.sph, mats.eye, .03,.03,.03, 0,.04,0); }
+  else if (kind === 't'){ part(handL, GEO.box, mats.steel, .2,.02,.05, 0,-.04,0); part(handL, GEO.box, mats.steel, .05,.02,.2, 0,-.04,0); }
+
+  // ── 頭：臉、眼睛、頭巾或頭髮 ──
+  const head = pivot(torso,0,.8,0), HS = [.128,.15,.125];
+  const shell = (geo,mat,k) => part(head, geo, mat, HS[0]*k, HS[1]*k, HS[2]*k, 0,0,0);
+  part(head, GEO.sph, mats.skin, HS[0],HS[1],HS[2], 0,0,0);
+  const CAP = sphGeo('cap',0,PI*2,0,1.22), MASK = sphGeo('mask',0,PI*2,1.7,PI-1.7), BACK = sphGeo('back',PI*1.3,PI*1.4,1.15,.62), BANG = sphGeo('bang',PI*.7,PI*.6,.5,.62);
+  for (const z of [-.048,.048]){
+    if (c.hero){ part(head, GEO.sph, mats.eye, .02,.015,.026, .108,.015,z); part(head, GEO.sph, mats.pupil, .012,.012,.014, .121,.013,z);
+      if (!LOW) part(head, GEO.box, mats.hair, .012,.008,.05, .116,.05,z).rotation.x = z > 0 ? -.28 : .28; }
+    else part(head, GEO.sph, mats.eye, .022,.02,.034, .11,.015,z);                           // 敵人的眼睛會發光，顏色代表兵種
+  }
+  if (fem){
+    shell(CAP, mats.hair, 1.06); shell(BACK, mats.hair, 1.06); shell(BANG, mats.hair, 1.075);
+    if (c.pony){
+      shell(MASK, mats.body, 1.05); part(head, GEO.cyl, mats.acc, .137,.028,.134, 0,.055,0);  // 面罩與頭帶
+      const p1 = pivot(head,-.09,.11,0); part(p1, capGeo(.045,.034,.3), mats.hair, 1,1,1, 0,0,0);   // 馬尾
+      const p2 = pivot(p1,0,-.3,0); part(p2, capGeo(.034,.012,.3), mats.hair, 1,1,1, 0,0,0);
+      sways.push({ p:p1, f:7, ph:0, a:.16, rest:-.85, mv:-.5 }, { p:p2, f:7, ph:1.2, a:.26, rest:.3, mv:-.15 });
+    } else {
+      const hb = pivot(head,-.07,-.02,0); part(hb, capGeo(.1,.07,.78), mats.hair, .45,1,1.1, 0,0,0);   // 垂到腰的長髮
+      sways.push({ p:hb, f:3.2, ph:0, a:.05, rest:-.1, mv:-.28 });
+      for (const z of [-.112,.112]) part(head, capGeo(.022,.012,.3), mats.hair, 1,1,1, .035,-.02,z);   // 鬢髮
+      part(head, GEO.sph, mats.lip, .012,.007,.022, .119,-.062,0);
+      part(head, latheGeo('tiara', [[.105,.0],[.1,.035]]), mats.gold, 1,1,1, .01,.105,0);     // 髮冠
+      part(head, GEO.sph, mats.lip, .016,.016,.016, .1,.135,0);
+      if (!LOW){ part(head, GEO.cyl, mats.gold, .006,.22,.006, -.05,.13,.07).rotation.x = .9; part(head, GEO.cyl, mats.gold, .006,.22,.006, -.05,.13,-.07).rotation.x = -.9;   // 髮簪
+        for (const a of [0,2.1,4.2]) part(head, GEO.sph, mats.white, .02,.02,.02, .05+Math.cos(a)*.022, .09+Math.sin(a)*.022, .125); }   // 鬢邊的花
+    }
+  } else if (c.armor){
+    shell(sphGeo('kabuto',0,PI*2,0,1.32), mats.dark, 1.16); shell(MASK, mats.acc, 1.08);      // 兜與面頰
+    part(head, latheGeo('shikoro', [[.2,-.12],[.17,-.02],[.14,.03]], PI*.85, PI*1.3), mats.acc, 1,1,1, 0,0,0);   // 護頸
+    part(head, geoOf('crest', () => new THREE.RingGeometry(.085,.125,18,1,0,PI)), mats.gold, 1, kind === 'x' ? 1.5 : 1, 1, .135,.14,0).rotation.y = PI/2;   // 前立
+    if (kind === 'x') for (const z of [-.1,.1]) part(head, capGeo(.02,.006,.24), mats.gold, 1,1,1, .06,.3,z).rotation.x = z > 0 ? 2.6 : -2.6;
+  } else {
+    shell(CAP, mats.body, 1.07); shell(MASK, mats.body, 1.07); shell(BACK, mats.body, 1.07);  // 頭巾
+    if (!LOW || !c.hero) part(head, GEO.cyl, mats.acc, .139,.026,.136, 0,.075,0);             // 額帶，顏色代表兵種
+    if (kind === 'j') part(head, GEO.box, mats.gold, .012,.05,.1, .135,.075,0);
+  }
+  if (c.scarf){   // 飄在腦後的長帶
+    const s1 = pivot(head,-.12,.07,0); part(s1, GEO.box, mats.scarf, .36,.012,.07, -.18,0,0);
+    const s2 = pivot(s1,-.36,0,0); part(s2, GEO.box, mats.scarf, .32,.01,.06, -.16,0,0);
+    sways.push({ p:s1, f:9, ph:0, a:.16, rest:.45, mv:-.6 }, { p:s2, f:9, ph:1, a:.28, rest:.15, mv:-.2 });
   }
   scene.add(root);
+  const lit = Object.keys(mats).map(k => mats[k]).filter(m => m.userData.e);
   // a = 面向角度，方向向量為 (cos a, sin a)（x, z 平面）
-  return { kind, root, model, torso, legL, legR, armL, armR, scarf, scarf2, mats, scale:c.s,
-           x:0, y:0, z:0, a:0, va:0, vx:0, vz:0, walk:0, moving:false, flash:0, alpha:1, warn:0 };
+  return { kind, ch:opt.ch || 0, root, model, torso, head, skirt, legL, legR, kneeL, kneeR, armL, armR, elbowL, elbowR, sways, mats, lit, scale:c.s, hipY:HIP,
+           x:0, y:0, z:0, a:0, va:0, vx:0, vz:0, walk:0, mv:0, moving:false, flash:0, alpha:1, warn:0 };
 }
 function setAlpha(f,a){
   if (f.alpha === a) return; f.alpha = a;
   for (const k in f.mats){ const m = f.mats[k]; m.transparent = a < 1; m.opacity = a; }
 }
 function disposeFighter(f){ scene.remove(f.root); for (const k in f.mats) f.mats[k].dispose(); }
+// 每一格擺姿勢。動作用漸進的方式切換（起步、停步、轉身都有過渡），看起來才滑順
 function pose(f,dt,armR,armL,lean,twist){
   f.root.position.set(f.x, f.y, f.z);
   f.va += adiff(f.a, f.va) * Math.min(1, dt*18);
   f.model.rotation.y = -f.va;
-  if (f.moving) f.walk += dt*11; else f.walk = lerp(f.walk, Math.round(f.walk/PI)*PI, Math.min(1,dt*12));
-  const sw = Math.sin(f.walk)*(f.moving ? .75 : 0);
-  f.legL.rotation.z = sw; f.legR.rotation.z = f.kick ? f.kick : -sw;
-  f.torso.position.y = .9 + Math.abs(Math.cos(f.walk))*(f.moving ? .05 : 0) + Math.sin(G.rt*2.4+f.x)*.008;
-  f.torso.rotation.z = lerp(f.torso.rotation.z, -(lean||0), Math.min(1,dt*18));
-  f.torso.rotation.y = lerp(f.torso.rotation.y, twist||0, Math.min(1,dt*26));
-  f.armR.rotation.z = lerp(f.armR.rotation.z, armR, Math.min(1,dt*30));
-  f.armL.rotation.z = lerp(f.armL.rotation.z, armL, Math.min(1,dt*20));
-  if (f.scarf){ f.scarf.rotation.z = Math.sin(G.rt*9+f.x)*.18 + (f.moving ? .1 : -.35); f.scarf2.rotation.z = Math.sin(G.rt*9+1)*.3 - .1; }
-  const fl = f.flash > 0 ? 1 : 0;
-  f.mats.body.emissive.setRGB(Math.max(fl, f.warn*.8), fl, fl);
+  const mv = f.mv = lerp(f.mv, f.moving ? 1 : 0, Math.min(1, dt*9)), t = G.rt;
+  if (mv > .05) f.walk += dt*11*(.35 + .65*mv); else f.walk = lerp(f.walk, Math.round(f.walk/PI)*PI, Math.min(1,dt*12));
+  const sw = Math.sin(f.walk)*.72*mv;
+  f.legL.rotation.z = sw; f.kneeL.rotation.z = -Math.max(0, Math.cos(f.walk-.4))*.95*mv - .05;      // 腳往前擺時膝蓋彎起
+  if (f.kick){ f.legR.rotation.z = f.kick; f.kneeR.rotation.z = -.08; }
+  else { f.legR.rotation.z = -sw; f.kneeR.rotation.z = -Math.max(0, Math.cos(f.walk+PI-.4))*.95*mv - .05; }
+  f.torso.position.y = f.hipY + Math.abs(Math.cos(f.walk))*.04*mv + Math.sin(t*2.2 + f.x*1.7)*.006;   // 走路的起伏與呼吸
+  f.torso.rotation.z = lerp(f.torso.rotation.z, -((lean||0) + mv*.1), Math.min(1,dt*16));
+  f.torso.rotation.y = lerp(f.torso.rotation.y, (twist||0) + sw*.18, Math.min(1,dt*24));
+  f.head.rotation.z = -f.torso.rotation.z*.55; f.head.rotation.y = -f.torso.rotation.y*.5;           // 頭盡量保持朝前
+  if (f.skirt) f.skirt.rotation.z = f.torso.rotation.z*.3;
+  f.armR.rotation.z = lerp(f.armR.rotation.z, armR, Math.min(1,dt*28));
+  f.armL.rotation.z = lerp(f.armL.rotation.z, armL + sw*.55, Math.min(1,dt*20));
+  f.elbowR.rotation.z = lerp(f.elbowR.rotation.z, .28 + clamp(f.armR.rotation.z*.12, 0, .35), Math.min(1,dt*20));
+  f.elbowL.rotation.z = .3 + mv*.35 + Math.max(0, f.armL.rotation.z)*.1;
+  for (const s of f.sways) s.p.rotation.z = s.rest + s.mv*mv + Math.sin(t*s.f + s.ph + f.x)*s.a*(.6 + mv*.6);
+  const fl = f.flash > 0 ? 1 : 0, wr = Math.max(fl, f.warn*.8);
+  for (const m of f.lit){ const e = m.userData.e; m.emissive.setRGB(e.r + wr, e.g + fl, e.b + fl); }   // 受擊閃白、出招前泛紅
   f.pp = [armR, armL, lean||0, twist||0];   // 記下這一格的姿勢，連線時傳給另一支手機照著擺
 }
 
 // ───────────────────────── 特效 ─────────────────────────
+// 刀光的漸層：弧的內外緣都淡出，看起來像一道柔和的光而不是硬邊的色塊
+const arcTex = canvasTex(256,256,(g,w,h)=>{ const r = g.createRadialGradient(128,128,64,128,128,128); r.addColorStop(0,'rgba(255,255,255,0)'); r.addColorStop(.3,'rgba(255,255,255,1)'); r.addColorStop(.6,'rgba(255,255,255,.5)'); r.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0,0,w,h); });
 const parts = [];
 function spawnP(geo,color,x,y,z,vx,vy,vz,life,size,o){
   o = o || {};
-  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent:true, opacity:o.a||1, depthWrite:false, side:THREE.DoubleSide,
-    blending: o.add ? THREE.AdditiveBlending : THREE.NormalBlending }));
+  const blending = o.add ? THREE.AdditiveBlending : THREE.NormalBlending;
+  // soft：邊緣柔和、永遠面向鏡頭的光點（煙、爆炸、殘影用）；map：貼一張漸層（刀光用）
+  const m = o.soft ? new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color, transparent:true, opacity:o.a||1, depthWrite:false, blending }))
+    : new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, map:o.map||null, transparent:true, opacity:o.a||1, depthWrite:false, side:THREE.DoubleSide, blending }));
   m.position.set(x,y,z); m.scale.setScalar(size); scene.add(m);
   const p = { m, vx, vy, vz, life, max:life, g:o.g||0, grow:o.grow||0, a:o.a||1, spin:o.spin||0, floor:o.floor };
   parts.push(p); return p;
@@ -403,7 +517,7 @@ function ink(x,y,z,a,n){
     spawnP(GEO.circ, Math.random()<.3 ? 0x7a120c : 0x070506, x, y+rand(-.3,.3), z, Math.cos(d)*s, rand(1,5), Math.sin(d)*s*(IS3D?1:.3), rand(1.6,3), rand(.05,.13), { g:16, floor:true }); }
 }
 function spark(x,y,z){ for (let i=0;i<10;i++) spawnP(GEO.box, 0xffe9b0, x,y,z, rand(-6,6), rand(-1,6), rand(-3,3), rand(.15,.32), rand(.04,.08), { g:12, add:true }); }
-function smokeFx(x,z,n,sz){ for (let i=0;i<(n||24);i++) spawnP(GEO.sph, 0x9a9aa6, x+rand(-.5,.5), rand(.3,1.8), z+rand(-.5,.5), rand(-2.4,2.4), rand(.2,1.6), rand(-1.6,1.6), rand(.9,1.8), rand(.25,.5)*(sz||1), { a:.5, grow:1.1 }); }
+function smokeFx(x,z,n,sz){ for (let i=0;i<(n||24);i++) spawnP(null, 0xb4b4c0, x+rand(-.5,.5), rand(.3,1.8), z+rand(-.5,.5), rand(-2.4,2.4), rand(.2,1.6), rand(-1.6,1.6), rand(.9,1.8), rand(.7,1.3)*(sz||1), { a:.42, grow:1.1, soft:true }); }
 function leafFx(x,z,n,pink){ for (let i=0;i<(n||16);i++){ const a = rand(0,2*PI), s = rand(1.5,4);
   spawnP(GEO.plane, pink ? [0xffb3c8,0xf58fb0,0xffd9e4][i%3] : [0x3f6b3a,0x6b8a3a,0x8a6a2a][i%3], x, rand(.2,1.6), z, Math.cos(a)*s, rand(2,5.5), Math.sin(a)*s*.6, rand(.8,1.5), rand(.1,.2), { g:6, spin:rand(-12,12) }); } }
 function paperFx(x,z,sx,sz,inX,inZ,n,colors){
@@ -415,19 +529,19 @@ function paperFx(x,z,sx,sz,inX,inZ,n,colors){
 // kind：'h' 橫斬（水平的弧）、'v' 正斬（直立的弧）。不指定時用該視角最好讀的那一種
 function slashFx(x,y,z,a,tilt,color,size,kind){
   if (IS3D){
-    const p = spawnP(GEO.arc, color, x+Math.cos(a)*.3, y, z+Math.sin(a)*.3, Math.cos(a)*2.5, 0, Math.sin(a)*2.5, .17, size||1, { add:true, grow:2.2 });
+    const p = spawnP(GEO.arc, color, x+Math.cos(a)*.3, y, z+Math.sin(a)*.3, Math.cos(a)*2.5, 0, Math.sin(a)*2.5, .2, size||1, { add:true, grow:2.2, map:arcTex });
     p.m.rotation.order = 'YXZ'; p.m.rotation.y = -a; p.m.rotation.x = kind === 'v' ? tilt : -PI/2 + tilt;
   } else {
-    const f = Math.cos(a) >= 0 ? 1 : -1, p = spawnP(GEO.arc, color, x+f*.4, y+.05, z+.08, f*2.5, 0, 0, .16, size||1, { add:true, grow:2.2 });
+    const f = Math.cos(a) >= 0 ? 1 : -1, p = spawnP(GEO.arc, color, x+f*.4, y+.05, z+.08, f*2.5, 0, 0, .2, size||1, { add:true, grow:2.2, map:arcTex });
     p.m.scale.x *= f; if (kind === 'h') p.m.scale.y *= .3; else p.m.rotation.z = tilt*2.2*f;
   }
 }
-function ghost(x,z,a,color,alpha){ const p = spawnP(GEO.box, color, x, .95, z, 0,0,0, .26, 1, { a:alpha||.45 }); p.m.scale.set(.5,1.9,.34); p.m.rotation.y = -a; }
+function ghost(x,z,a,color,alpha){ const p = spawnP(null, color, x, 1.05, z, 0,0,0, .28, 1, { a:(alpha||.45)*1.3, soft:true }); p.m.scale.set(1.3,2.6,1); }
 function lineFx(x1,z1,x2,z2,y,color,life){ const p = spawnP(GEO.box, color, (x1+x2)/2, y, (z1+z2)/2, 0,0,0, life, 1, {}); p.m.scale.set(Math.hypot(x2-x1,z2-z1), .05, .05); p.m.rotation.y = -Math.atan2(z2-z1, x2-x1); }
 function boomFx(x,z,color){
   const r = spawnP(GEO.ring, color, x, .08, z, 0,0,0, .4, .6, { add:true, grow:6 }); r.m.rotation.x = -PI/2;
-  spawnP(GEO.sph, 0xfff0c0, x, .8, z, 0,1,0, .22, .7, { add:true, grow:5 });
-  for (let i=0;i<16;i++) spawnP(GEO.sph, i%3 ? color : 0x3a2a22, x, .6, z, rand(-5,5), rand(2,7), rand(-4,4), rand(.4,.9), rand(.15,.35), { g:9, a:.8, grow:.8 });
+  spawnP(null, 0xfff0c0, x, .8, z, 0,1,0, .24, 2, { add:true, grow:5, soft:true });
+  for (let i=0;i<16;i++) spawnP(null, i%3 ? color : 0x3a2a22, x, .6, z, rand(-5,5), rand(2,7), rand(-4,4), rand(.4,.9), rand(.5,.95), { g:9, a:.75, grow:.8, soft:true });
   G.shake = Math.max(G.shake,.5);
 }
 const _v = new THREE.Vector3();

@@ -84,11 +84,21 @@ const zoneLeft = () => G.zi ? Z()[G.zi-1].right : XA;
 const inBounds = (x,z) => IS3D ? [clamp(x, zoneLeft()+1, G.lockRight-1), clamp(z, ZMIN+.6, ZMAX-.6)] : [clamp(x, viewL(), viewR()), clamp(z, ZMIN, ZMAX)];
 
 // ───────────────────────── 玩家 ─────────────────────────
-const PL = [0,1].map(i => Object.assign(makeFighter(i ? 'p2' : 'p1'), {
+const PL = [0,1].map(i => Object.assign(makeFighter('p', { ch:0, pi:i }), {
+  cs:CHARS[0],
   pi:i, on:i === 0, hp:100, ki:0, shur:5, state:'idle', t:0, idx:0, chainT:0, buf:false, bufOn:false, onBeat:false, hitDone:false,
   inv:0, dashCD:0, smokeCD:0, shurCD:0, stealth:0, dead:false, dvx:0, dvz:0, gT:0,
 }));
 PL[1].root.visible = false;
+const hpMaxOf = P => Math.round(UP.hpMax * P.cs.hp);
+// 換角色：重建外觀，保留位置與狀態
+const VIS = ['kind','ch','root','model','torso','head','skirt','legL','legR','kneeL','kneeR','armL','armR','elbowL','elbowR','sways','mats','lit','scale','hipY'];
+function setChar(P,ch){
+  ch = clamp(ch|0, 0, CHARS.length-1);
+  const n = makeFighter('p', { ch, pi:P.pi }), vis = P.root.visible;
+  disposeFighter(P); for (const k of VIS) P[k] = n[k];
+  P.cs = CHARS[ch]; P.alpha = 1; P.root.visible = vis; P.root.position.set(P.x, P.y, P.z);
+}
 const active = () => PL.filter(p => p.on), alive = () => PL.filter(p => p.on && !p.dead);
 const lead = () => { const a = alive(); return a.length ? pick(a) : PL[0]; };
 const targetable = e => !e.dead && e.state !== 'lurk' && e.state !== 'drop' && e.state !== 'vanish';
@@ -142,13 +152,13 @@ const MOVES = [
   { name:'飛鏢', dur:.32, hit:.10, dmg:12, range:0 },
 ];
 function strike(P){
-  const idx = P.idx, on = P.onBeat, mv = MOVES[idx-1], range = mv.range + (IS3D ? .2 : 0), stealth = P.stealth > 0, col = on ? 0xffc76b : 0xffffff;
+  const idx = P.idx, on = P.onBeat, mv = MOVES[idx-1], range = mv.range + (IS3D ? .2 : 0) + P.cs.reach, stealth = P.stealth > 0, col = on ? 0xffc76b : 0xffffff;
   let base = mv.dmg * UP.dmg; if (on) base *= 2;
   const ca = Math.cos(P.a), sa = Math.sin(P.a);
   if (idx === 5){   // 收招：一次射出三枚手裏劍，不消耗數量
     for (const da of [-.22,0,.22]) shoot(P.x+ca*.6, P.z+sa*.6, P.a+da, 21, P, base);
     P.armL.rotation.z = 2.4; if (stealth) P.stealth = 0;
-    P.ki = Math.min(100, P.ki + 10*UP.ki); pop('五連！', P.x, 3.4, P.z, 'gold'); G.score += 150;
+    P.ki = Math.min(100, P.ki + 10*UP.ki*P.cs.ki); pop('五連！', P.x, 3.4, P.z, 'gold'); G.score += 150;
     return;
   }
   if (idx === 1) slashFx(P.x, 1.25, P.z, P.a, 0, col, 1.05, 'h');
@@ -173,7 +183,7 @@ function strike(P){
   if (stealth) P.stealth = 0;
   if (hit){
     G.freeze = on ? .09 : .05; G.shake = Math.max(G.shake, on ? .35 : .18);
-    addCombo(hit); P.ki = Math.min(100, P.ki + (on ? 14 : 4)*UP.ki); AU.hit(on);
+    addCombo(hit); P.ki = Math.min(100, P.ki + (on ? 14 : 4)*UP.ki*P.cs.ki); AU.hit(on);
   }
 }
 function ult(P){
@@ -195,7 +205,7 @@ function hurtPlayer(P,d,a){
   if (!P.on || P.inv > 0 || P.dead || G.mode !== 'play') return false;
   d = Math.max(1, Math.round(d*DIFF.dmg));
   P.hp -= d; G.dmgTaken += d; P.inv = .8; P.state = 'hurt'; P.t = .25; P.vx = Math.cos(a)*8; P.vz = Math.sin(a)*8*(IS3D?1:.4); P.stealth = 0; P.buf = false;
-  G.combo = 0; G.shake = .45; G.freeze = .06; AU.hurt(); AU.hurtV(); ink(P.x,1.3,P.z,a,6);
+  G.combo = 0; G.shake = .45; G.freeze = .06; AU.hurt(); AU.hurtV(P.cs.fem ? 1.45 : 1); ink(P.x,1.3,P.z,a,6);
   const v = $('vig'); v.style.transition = 'none'; v.style.opacity = 1; requestAnimationFrame(() => { v.style.transition = ''; v.style.opacity = 0; });
   if (P.hp <= 0){
     P.hp = 0; P.dead = true; P.a = a + PI; P.t = 0;
@@ -216,7 +226,7 @@ function updPlayer(P,dt){
     if (pr.ult) ult(P);
     if (pr.dash && P.dashCD <= 0 && P.state !== 'hurt'){
       const dx = dir ? dir[0] : Math.cos(P.a), dz = dir ? dir[1] : Math.sin(P.a);
-      P.state = 'dash'; P.t = .17; P.dvx = dx*23; P.dvz = dz*(IS3D ? 23 : 13); P.inv = Math.max(P.inv,.26); P.dashCD = UP.dashCD; P.buf = false;
+      P.state = 'dash'; P.t = .17; P.dvx = dx*23; P.dvz = dz*(IS3D ? 23 : 13); P.inv = Math.max(P.inv,.26); P.dashCD = UP.dashCD*P.cs.dash; P.buf = false;
       if (IS3D) P.a = Math.atan2(dz,dx); else if (dx) P.a = dx > 0 ? 0 : PI;
       AU.dash(); speedLines();
     }
@@ -252,7 +262,7 @@ function updPlayer(P,dt){
       break;
     case 'hurt': P.t -= dt; lean = -.4; armR = 1.4; if (P.t <= 0) P.state = 'idle'; break;
   }
-  if (sp && dir){ P.x += dir[0]*6.3*sp*dt; P.z += dir[1]*(IS3D ? 6.3 : 4.1)*sp*dt; P.moving = sp > .5; }
+  if (sp && dir){ P.x += dir[0]*6.3*P.cs.spd*sp*dt; P.z += dir[1]*(IS3D ? 6.3 : 4.1)*P.cs.spd*sp*dt; P.moving = sp > .5; }
   if (IS3D) P.x = clamp(P.x, XA+.6, G.lockRight-.6); else P.x = clamp(P.x, cam.x-G.halfW+.6, Math.min(cam.x+G.halfW-.6, G.lockRight-.6));
   P.z = clamp(P.z, ZMIN, ZMAX);
   setAlpha(P, P.stealth > 0 ? .3 : (P.inv > 0 && P.state !== 'dash' && Math.floor(G.rt*24)%2 ? .45 : 1));
@@ -292,7 +302,7 @@ function updPickups(dt){
   for (let i = pickups.length-1; i >= 0; i--){
     const p = pickups[i]; p.life -= dt; p.g.position.y = .5 + Math.sin(G.rt*4+p.x)*.1; p.g.rotation.y += dt*2; p.g.visible = p.life > 3 || Math.floor(G.rt*8)%2 === 0;
     const P = alive().find(q => Math.hypot(q.x-p.x, q.z-p.z) < 1);
-    if (P){ P.hp = Math.min(UP.hpMax, P.hp+15); pop('飯糰 +15', p.x, 2.2, p.z, 'gold'); AU.pick(); }
+    if (P){ P.hp = Math.min(hpMaxOf(P), P.hp+15); pop('飯糰 +15', p.x, 2.2, p.z, 'gold'); AU.pick(); }
     if (P || p.life <= 0){ scene.remove(p.g); pickups.splice(i,1); }
   }
 }
@@ -382,7 +392,7 @@ function damage(e,d,o){
 function killEnemy(e,a){
   e.dead = true; e.state = 'dead'; e.t = 0; e.warn = 0; e.hp = 0; if (!e.side) e.a = a + PI;
   G.kills++; G.score += 100*(1 + Math.floor(G.combo/5)); alive().forEach(p => { p.shur = Math.min(UP.shurMax, p.shur+1); }); AU.dieV();
-  const low = alive().some(p => p.hp < UP.hpMax*.4);
+  const low = alive().some(p => p.hp < hpMaxOf(p)*.4);
   if (!e.side && Math.random() < (low ? DIFF.rice*2.4 : DIFF.rice)) dropRice(e.x, e.z);
   if (NAMES[e.ai]){
     G.score += 2000; G.shake = .7; G.slowT = 1.2;
@@ -636,7 +646,7 @@ const UPGRADES = [
   { name:'活泉', text:'每清完一區多回復 15 體力', ap(){ UP.heal += 15; } },
 ];
 const SAVE_KEY = 'kage_v3_' + (IS3D ? '3d' : '25');
-let SAVE = { unlocked:0, diff:1, np:1, best:{} };
+let SAVE = { unlocked:0, diff:1, np:1, ch:[0,0], best:{} };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s.unlocked === 'number') SAVE = Object.assign(SAVE, s); } catch(e){}
 function saveNow(){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch(e){} }
 const bestKey = i => DIFF.id + G.np + ':' + i;
@@ -649,6 +659,13 @@ function drawTitle(){
   $('segDiff').querySelectorAll('button').forEach(b => b.onclick = () => { SAVE.diff = +b.dataset.i; saveNow(); drawTitle(); });
   $('segNp').querySelectorAll('button').forEach(b => b.onclick = () => { SAVE.np = +b.dataset.n; saveNow(); drawTitle(); });
   $('keys2').style.opacity = G.np === 2 ? 1 : .35;
+  // 角色選擇：單人一列；本機雙人兩列；連線時各自在自己的裝置上選
+  if (!Array.isArray(SAVE.ch)) SAVE.ch = [0,0];
+  const online = NET && NET.on, two = G.np === 2 && !online;
+  $('lblCh0').textContent = two ? '壹' : '角色';
+  [0,1].forEach(k => { $('rowCh'+k).style.display = k === 0 || two ? '' : 'none';
+    $('segCh'+k).innerHTML = CHARS.map((c,i) => `<button class="${i === (SAVE.ch[k]||0) ? 'on' : ''}" data-i="${i}">${c.name}<small>${c.note}</small></button>`).join('');
+    $('segCh'+k).querySelectorAll('button').forEach(b => b.onclick = () => { SAVE.ch[k] = +b.dataset.i; saveNow(); drawTitle(); if (NET && NET.sendChar) NET.sendChar(); }); });
   $('stages').innerHTML = STAGES.map((s,i) => { const b = SAVE.best[bestKey(i)], lock = i > SAVE.unlocked;
     return `<button class="btn" data-i="${i}" ${lock ? 'disabled' : ''}><span>${i+1}　${s.name}</span><em>${lock ? '未解鎖' : b ? b.r + '　' + fmtTime(b.t) : '—'}</em></button>`; }).join('');
   $('stages').querySelectorAll('button').forEach(b => b.onclick = () => startRun(+b.dataset.i));
@@ -682,8 +699,8 @@ function updZones(dt){
     breakGate(z.right); G.zi++; G.lockRight = zs[G.zi].right; $('go').classList.add('on'); G.slowT = .45; kanji('斬');
     const L = lead();
     for (const p of active()){
-      if (p.dead){ p.dead = false; p.hp = Math.round(UP.hpMax*.5); p.x = L.x; p.z = clamp(L.z + (p.pi ? .8 : -.8), ZMIN, ZMAX); p.state = 'idle'; p.inv = 1.5; p.model.rotation.z = 0; setAlpha(p,1); smokeFx(p.x,p.z,12,.8); pop('復活', p.x, 2.8, p.z, 'gold'); }
-      else if (p.hp < UP.hpMax){ p.hp = Math.min(UP.hpMax, p.hp+UP.heal); pop('回復', p.x, 2.8, p.z); }
+      if (p.dead){ p.dead = false; p.hp = Math.round(hpMaxOf(p)*.5); p.x = L.x; p.z = clamp(L.z + (p.pi ? .8 : -.8), ZMIN, ZMAX); p.state = 'idle'; p.inv = 1.5; p.model.rotation.z = 0; setAlpha(p,1); smokeFx(p.x,p.z,12,.8); pop('復活', p.x, 2.8, p.z, 'gold'); }
+      else if (p.hp < hpMaxOf(p)){ p.hp = Math.min(hpMaxOf(p), p.hp+UP.heal); pop('回復', p.x, 2.8, p.z); }
     }
     AU.chime();
   } else {
@@ -709,8 +726,10 @@ function startStage(i){
   ['start','clear','end'].forEach(id => $(id).classList.add('hidden'));
   buildWorld(st.theme, zs[zs.length-1].right, zs.slice(0,-1).map(z => z.right));
   PL.forEach((P,k) => {
+    const want = NET && NET.host && NET.conn && k === 1 ? (NET.guestCh || 0) : ((SAVE.ch && SAVE.ch[k]) || 0);   // 連線時夥伴的角色由他自己選
+    if (P.ch !== want) setChar(P, want);
     P.on = k < G.np; P.root.visible = P.on;
-    Object.assign(P, { x:IS3D ? 1.5 : 1, z:G.np === 2 ? (k ? .9 : -.9) : 0, y:0, vx:0, vz:0, a:0, va:0, hp:UP.hpMax, ki:0, shur:UP.shurMax, state:'idle', t:0, idx:0, chainT:0, buf:false,
+    Object.assign(P, { x:IS3D ? 1.5 : 1, z:G.np === 2 ? (k ? .9 : -.9) : 0, y:0, vx:0, vz:0, a:0, va:0, hp:hpMaxOf(P), ki:0, shur:UP.shurMax, state:'idle', t:0, idx:0, chainT:0, buf:false,
       inv:0, dashCD:0, smokeCD:0, shurCD:0, stealth:0, dead:false, flash:0 });
     P.model.rotation.z = 0; setAlpha(P,1); P.root.position.set(P.x,0,P.z);
   });
@@ -784,7 +803,7 @@ function updHud(){
   const key = ps.map(P => [P.hp|0, P.ki|0, P.shur, Math.ceil(Math.max(0,P.smokeCD)), P.dead]).join() + [UP.shurMax, UP.hpMax, G.score, G.combo, boss ? boss.hp|0 : 0].join();
   if (key === lastHud) return; lastHud = key;
   for (const P of ps){ const i = P.pi; if (!$('hp'+i)) continue;
-    $('hp'+i).style.width = (P.hp/UP.hpMax*100) + '%'; $('ki'+i).style.width = P.ki + '%'; $('kib'+i).classList.toggle('full', P.ki >= 100);
+    $('hp'+i).style.width = (P.hp/hpMaxOf(P)*100) + '%'; $('ki'+i).style.width = P.ki + '%'; $('kib'+i).classList.toggle('full', P.ki >= 100);
     let s = ''; for (let k=0;k<UP.shurMax;k++) s += `<b class="${k < P.shur ? '' : 'off'}"></b>`; $('sh'+i).innerHTML = s;
     const sm = $('sm'+i); sm.textContent = P.dead ? '倒下' : P.smokeCD > 0 ? '煙 ' + Math.ceil(P.smokeCD) : '煙 ●'; sm.classList.toggle('ready', !P.dead && P.smokeCD <= 0); }
   if (TOUCH) $('btns').querySelector('.b-ult').classList.toggle('ready', PL[NET && NET.guest ? 1 : 0].ki >= 100);
