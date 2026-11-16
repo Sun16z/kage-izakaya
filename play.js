@@ -4,9 +4,9 @@
 // ───────────────────────── 輸入（鍵盤＋手把）─────────────────────────
 const IN = [{ k:{}, p:{}, g:{}, t:{}, n:{} }, { k:{}, p:{}, g:{}, t:{}, n:{} }];
 let NET = null, NID = 0;   // NET：連線模組（net.js 載入後才有）；NID：敵人、飛鏢等物件的編號，連線時用來對應
-const KEY1 = { KeyA:'L',KeyD:'R',KeyW:'U',KeyS:'D',KeyJ:'atk',KeyK:'dash',KeyL:'shur',Space:'smoke',KeyU:'ult' };
+const KEY1 = { KeyA:'L',KeyD:'R',KeyW:'U',KeyS:'D',KeyJ:'atk',KeyK:'dash',KeyL:'shur',Space:'smoke',KeyU:'ult',Digit1:'q1',Digit2:'q2',Digit3:'q3' };
 const KEY1X = { ArrowLeft:'L',ArrowRight:'R',ArrowUp:'U',ArrowDown:'D',KeyZ:'atk',KeyX:'dash',KeyC:'shur',KeyV:'ult' };   // 單人時的備用鍵
-const KEY2 = { ArrowLeft:'L',ArrowRight:'R',ArrowUp:'U',ArrowDown:'D',Comma:'atk',Period:'dash',Slash:'shur',ShiftRight:'smoke',Enter:'ult' };
+const KEY2 = { ArrowLeft:'L',ArrowRight:'R',ArrowUp:'U',ArrowDown:'D',Comma:'atk',Period:'dash',Slash:'shur',ShiftRight:'smoke',Enter:'ult',Digit8:'q1',Digit9:'q2',Digit0:'q3' };
 const camKeys = {};
 function keyOwner(code){
   if (KEY1[code]) return [0, KEY1[code]];
@@ -153,7 +153,7 @@ const MOVES = [
 ];
 function strike(P){
   const idx = P.idx, on = P.onBeat, mv = MOVES[idx-1], range = mv.range + (IS3D ? .2 : 0) + P.cs.reach, stealth = P.stealth > 0, col = on ? 0xffc76b : 0xffffff;
-  let base = mv.dmg * UP.dmg; if (on) base *= 2;
+  let base = mv.dmg * UP.dmg; if (on) base *= 2; if (G.rt < (G.enBuffUntil || 0)) base *= 1.5;   // 答對英文題後的言靈加成
   const ca = Math.cos(P.a), sa = Math.sin(P.a);
   if (idx === 5){   // 收招：一次射出三枚手裏劍，不消耗數量
     for (const da of [-.22,0,.22]) shoot(P.x+ca*.6, P.z+sa*.6, P.a+da, 21, P, base);
@@ -646,7 +646,7 @@ const UPGRADES = [
   { name:'活泉', text:'每清完一區多回復 15 體力', ap(){ UP.heal += 15; } },
 ];
 const SAVE_KEY = 'kage_v3_' + (IS3D ? '3d' : '25');
-let SAVE = { unlocked:0, diff:1, np:1, ch:[0,0], best:{} };
+let SAVE = { unlocked:0, diff:1, np:1, ch:[0,0], en:0, enListen:false, enStat:{}, best:{} };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s.unlocked === 'number') SAVE = Object.assign(SAVE, s); } catch(e){}
 function saveNow(){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch(e){} }
 const bestKey = i => DIFF.id + G.np + ':' + i;
@@ -659,6 +659,13 @@ function drawTitle(){
   $('segDiff').querySelectorAll('button').forEach(b => b.onclick = () => { SAVE.diff = +b.dataset.i; saveNow(); drawTitle(); });
   $('segNp').querySelectorAll('button').forEach(b => b.onclick = () => { SAVE.np = +b.dataset.n; saveNow(); drawTitle(); });
   $('keys2').style.opacity = G.np === 2 ? 1 : .35;
+  // 英文修行：選題庫程度；「聽力」開啟時只念不顯示文字
+  if (typeof EN_LEVELS !== 'undefined'){
+    const notes = ['純動作遊戲', '課本程度的句子', '日常會話片語'];
+    $('segEn').innerHTML = EN_LEVELS.map((n,i) => `<button class="${i === (SAVE.en||0) ? 'on' : ''}" data-i="${i}">${n}<small>${notes[i]}</small></button>`).join('') +
+      `<button class="${SAVE.enListen ? 'on' : ''}" data-l="1" ${SAVE.en ? '' : 'disabled'}>聽力<small>只念不顯示</small></button>`;
+    $('segEn').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.l) SAVE.enListen = !SAVE.enListen; else SAVE.en = +b.dataset.i; saveNow(); drawTitle(); if (SAVE.en && !b.dataset.l) speakEn('Let\'s go!'); });
+  }
   // 角色選擇：單人一列；本機雙人兩列；連線時各自在自己的裝置上選
   if (!Array.isArray(SAVE.ch)) SAVE.ch = [0,0];
   const online = NET && NET.on, two = G.np === 2 && !online;
@@ -734,6 +741,7 @@ function startStage(i){
     P.model.rotation.z = 0; setAlpha(P,1); P.root.position.set(P.x,0,P.z);
   });
   IN.forEach(n => { n.k = {}; n.p = {}; });
+  if (typeof EN !== 'undefined') EN.reset();
   Object.assign(G, { si:i, mode:'play', time:0, score:0, kills:0, swings:0, beatSw:0, combo:0, comboT:0, maxCombo:0, dmgTaken:0,
     freeze:0, slowT:0, shake:0, zi:0, wi:0, zoneActive:false, lockRight:zs[0].right, hazT:6, flash:0 });
   cam.x = IS3D ? PL[0].x : XA + .2 + G.halfW; cam.z = 0; cam.yaw = 0;
@@ -762,7 +770,7 @@ function showClear(){
   const newBest = !old || G.time < old.t;
   SAVE.best[key] = { r: old && 'SABC'.indexOf(old.r) < 'SABC'.indexOf(r) ? old.r : r, t: old ? Math.min(old.t, G.time) : G.time };
   SAVE.unlocked = Math.max(SAVE.unlocked, Math.min(STAGES.length-1, i+1)); saveNow();
-  const stats = `時間<b>${fmtTime(G.time)}</b>${newBest ? '<b class="new">最佳紀錄</b>' : '　最佳<b>' + fmtTime(old.t) + '</b>'}<br>得分<b>${G.score}</b>　擊倒<b>${G.kills}</b>　最高連段<b>${G.maxCombo}</b><br>合拍率<b>${Math.round(rate*100)}%</b>　受傷<b>${G.dmgTaken}</b>`;
+  const stats = `時間<b>${fmtTime(G.time)}</b>${newBest ? '<b class="new">最佳紀錄</b>' : '　最佳<b>' + fmtTime(old.t) + '</b>'}<br>得分<b>${G.score}</b>　擊倒<b>${G.kills}</b>　最高連段<b>${G.maxCombo}</b><br>合拍率<b>${Math.round(rate*100)}%</b>　受傷<b>${G.dmgTaken}</b>` + (typeof EN !== 'undefined' ? EN.review() : '');
   if (last){
     G.mode = 'ending';
     $('endTitle').textContent = '忍務達成'; $('endSub').textContent = `十關全破　${DIFF.name}　評價 ${r}　總分 ${G.total}　總時間 ${fmtTime(G.totalTime)}`;
@@ -781,7 +789,7 @@ function showOver(){
   G.mode = 'overMenu';
   const { rate } = rankOf();
   $('endTitle').textContent = '忍道未竟'; $('endSub').textContent = STAGES[G.si].no + '　' + STAGES[G.si].name + '　' + DIFF.name;
-  $('endStats').innerHTML = `時間<b>${fmtTime(G.time)}</b><br>得分<b>${G.score}</b>　擊倒<b>${G.kills}</b>　最高連段<b>${G.maxCombo}</b><br>合拍率<b>${Math.round(rate*100)}%</b>`;
+  $('endStats').innerHTML = `時間<b>${fmtTime(G.time)}</b><br>得分<b>${G.score}</b>　擊倒<b>${G.kills}</b>　最高連段<b>${G.maxCombo}</b><br>合拍率<b>${Math.round(rate*100)}%</b>` + (typeof EN !== 'undefined' ? EN.review() : '');
   $('retryBtn').style.display = ''; $('titleBtn').textContent = '回標題　T';
   $('end').classList.remove('hidden'); if (NET && NET.host) NET.ui('end');
 }
@@ -799,6 +807,7 @@ function updHud(){
   $('drum').style.transform = `scale(${1 + .22*Math.exp(-f*9)})`;
   const rg = $('ring').style; rg.transform = `scale(${1 + (1-f)*1.5})`; rg.opacity = .15 + f*.8;
   $('time').textContent = fmtTime(G.time);
+  $('buff').textContent = G.rt < (G.enBuffUntil || 0) ? '言靈　攻擊 ×1.5' : '';
   const ps = active();
   const key = ps.map(P => [P.hp|0, P.ki|0, P.shur, Math.ceil(Math.max(0,P.smokeCD)), P.dead]).join() + [UP.shurMax, UP.hpMax, G.score, G.combo, boss ? boss.hp|0 : 0].join();
   if (key === lastHud) return; lastHud = key;
@@ -829,7 +838,7 @@ function frame(now){
   if (guest) NET.guestFrame(raw);
   else if (running && dt > 0){
     for (const P of active()) updPlayer(P,dt);
-    updEnemies(dt); updShots(dt); updPickups(dt); updHazards(dt); updZones(dt);
+    updEnemies(dt); updShots(dt); updPickups(dt); updHazards(dt); updZones(dt); if (typeof EN !== 'undefined') EN.update();
     if (G.comboT > 0){ G.comboT -= dt; if (G.comboT <= 0) G.combo = 0; }
   }
   if (NET && NET.on) NET.tick(raw);

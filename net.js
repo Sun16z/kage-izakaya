@@ -13,7 +13,7 @@
   // ── 特效與音效的轉播 ──
   // 房主呼叫這些函式時順便記下來，隨下一次狀態一起送出，另一台照樣呼叫一次，兩邊就會看到、聽到同樣的東西。
   // depth 用來只記最外層的呼叫（例如 kanji 裡面會敲拍子木，那一聲不用重複記）。
-  const FX = ['slashFx','ink','spark','smokeFx','leafFx','paperFx','ghost','lineFx','boomFx','pop','kanji','cine','hint','breakPanel','breakGate','startStage'];
+  const FX = ['slashFx','ink','spark','smokeFx','leafFx','paperFx','ghost','lineFx','boomFx','pop','kanji','cine','hint','breakPanel','breakGate','startStage','quizOpen','quizClose'];
   const SKIP = { init:1, setStage:1, offset:1, frac:1 };
   let depth = 0;
   const wrap = (obj,name,tag) => {
@@ -143,7 +143,7 @@
       if (d.t === 'c'){ NET.guestCh = clamp(d.ch|0, 0, CHARS.length-1); return; }   // 夥伴選的角色
       if (d.t !== 'i') return;
       const n = IN[1].n; n.L = !!d.h[0]; n.R = !!d.h[1]; n.U = !!d.h[2]; n.D = !!d.h[3];
-      for (const k of d.p) if (k === 'atk' || k === 'dash' || k === 'shur' || k === 'smoke' || k === 'ult') IN[1].p[k] = true;
+      for (const k of d.p) if (k === 'atk' || k === 'dash' || k === 'shur' || k === 'smoke' || k === 'ult' || k === 'q1' || k === 'q2' || k === 'q3') IN[1].p[k] = true;
       IN[1].yaw = +d.y || 0; if (d.b !== undefined) PL[1].netBeat = !!d.b;
     } else if (d.t === 'hello'){
       if (!!d.m !== IS3D){ location.href = (d.m ? 'game3d.html' : 'index.html') + '?room=' + NET.code; return; }   // 房主玩的是另一個視角：自動跳過去

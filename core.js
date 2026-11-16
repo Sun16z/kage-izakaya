@@ -22,7 +22,7 @@ document.body.insertAdjacentHTML('beforeend', `
   <div id="grade"></div><div id="vignette"></div><div id="veil"></div><div id="vig"></div><div id="lines"></div>
   <div class="barx" id="barT"></div><div class="barx" id="barB"></div>
   <div id="tl"></div>
-  <div id="tr"><div id="stage"></div><div id="time">00:00.0</div><div id="score">000000</div><div id="combo"></div></div>
+  <div id="tr"><div id="stage"></div><div id="time">00:00.0</div><div id="score">000000</div><div id="combo"></div><div id="buff"></div></div>
   <div id="hint"></div>
   <div id="go">${IS3D ? '▲ 前進' : '進 ▶'}</div>
   <div id="boss"><span id="bossName"></span><div class="bar"><i id="bhp"></i></div></div>
@@ -40,6 +40,7 @@ document.body.insertAdjacentHTML('beforeend', `
       <div class="row"><span class="rl">人數</span><div class="seg" id="segNp"></div></div>
       <div class="row" id="rowCh0"><span class="rl" id="lblCh0">角色</span><div class="seg" id="segCh0"></div></div>
       <div class="row" id="rowCh1"><span class="rl">貳</span><div class="seg" id="segCh1"></div></div>
+      <div class="row"><span class="rl">英文</span><div class="seg" id="segEn"></div></div>
       ${window.HASHMODE ? '' : `<div class="row" id="netRow"><span class="rl">連線</span><div class="seg">
         <button id="netHost">開房間<small>當房主，邀朋友加入</small></button>
         <input id="netCode" inputmode="numeric" maxlength="4" placeholder="房號" autocomplete="off">
@@ -61,6 +62,9 @@ document.body.insertAdjacentHTML('beforeend', `
   <div id="btns"><button data-a="ult" class="b-ult">氣</button><button data-a="smoke" class="b-smoke">煙</button><button data-a="shur" class="b-shur">鏢</button><button data-a="dash" class="b-dash">瞬</button><button data-a="atk" class="b-atk">刀</button></div>
 </div>
 <div id="rotate"><div>請把手機橫放<small>橫向畫面才看得到完整戰場</small></div></div>
+<div id="quiz"><div id="qHead"><button id="qSay">再聽一次</button><b id="qText"></b><span id="qRes"></span></div>
+  <div id="qOpts"><button data-k="1"><i>1</i><span></span></button><button data-k="2"><i>2</i><span></span></button><button data-k="3"><i>3</i><span></span></button></div>
+  <div id="qBar"><i></i></div></div>
 <div id="clear" class="overlay hidden">
   <div>
     <div class="wrap"><div id="rank">S</div><div><h2 id="clearTitle"></h2><div class="stats" id="clearStats"></div></div></div>
@@ -229,6 +233,8 @@ const AU = (() => {
     pick(){ if(!ctx)return; const t=now(); shami(t,A4,.16); shami(t+.08,D5,.16); },
     ult(){ if(!ctx)return; const t=now(); for (let i=0;i<7;i++) don(t+.5*(1-Math.pow(.72,i)), .5+i*.06); gong(t+.42,.3); flute(t,D5,.7,.16); },
     chime(){ if(!ctx)return; bell(now(),1760,.1,1.1); },
+    // 念英文時把配樂壓小聲，念完再恢復
+    duck(sec){ if(!ctx)return; const t=now(); musicBus.gain.cancelScheduledValues(t); musicBus.gain.setTargetAtTime(MUSIC_VOL*.25,t,.05); musicBus.gain.setTargetAtTime(MUSIC_VOL,t+sec,.25); },
     clack(){ if(!ctx)return; const t=now(); clack(t,.28); clack(t+.11,.2); },
     // 喝聲。idx 對應五連擊：哈！／誓！／咿呀——！／咚！（踢）／呼（擲鏢時的吐氣）
     kiai(idx,low){ if(!ctx)return; const t=now(), k=(1+rand(-.06,.06))*(low ? .84 : 1);
