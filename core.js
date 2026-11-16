@@ -1,5 +1,6 @@
 'use strict';
 // 影之居酒屋：共用核心。2.5D 與 3D 兩個版本用同一套引擎，只差鏡頭與場地寬度。
+const VERSION = '1117c';   // 顯示在標題畫面角落，用來確認看到的是不是最新版
 const IS3D = window.MODE === '3d';
 // 觸控裝置（手機、平板）：顯示虛擬搖桿與按鈕，並降低畫質負擔
 const TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window || /[?&]touch=1/.test(location.search);
@@ -53,7 +54,7 @@ document.body.insertAdjacentHTML('beforeend', `
         <div id="keys2"><b class="p2">貳</b> 方向鍵 移動　, 刀　. 瞬身　/ 手裏劍　右Shift 煙霧　Enter 分身斬</div>
         <div>${IS3D ? '滑鼠拖曳或 Q / E 轉動視角。' : ''}光圈收到鼓面的瞬間出刀就是合拍，傷害加倍。也可以接手把。</div>
       </div>
-      <p class="foot"><span class="keyOnly">Enter 從第一關開始　</span><span class="touchOnly">點關卡名稱開始　</span><a id="swap" href="${IS3D ? 'index.html' : 'game3d.html'}">改玩 ${IS3D ? '2.5D' : '3D'} 版 →</a></p>
+      <p class="foot"><span class="keyOnly">Enter 從第一關開始　</span><span class="touchOnly">點關卡名稱開始　</span><span class="ver">版本 ${VERSION}</span>　<a id="swap" href="${IS3D ? 'index.html' : 'game3d.html'}">改玩 ${IS3D ? '2.5D' : '3D'} 版 →</a></p>
     </div>
   </div>
 </div>
