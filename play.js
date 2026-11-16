@@ -18,6 +18,11 @@ addEventListener('keydown', e => {
   const playing = G.mode === 'play' || G.mode === 'clear' || G.mode === 'over';
   const o = playing ? keyOwner(e.code) : null;
   if (o){ const [i,n] = o; if (!IN[i].k[n]) IN[i].p[n] = true; IN[i].k[n] = true; e.preventDefault(); }
+  if (G.mode === 'play'){   // 暫停：Esc 或 P 開關；選單開著時 R 重來、T 回首頁
+    const open = !$('pause').classList.contains('hidden');
+    if (e.code === 'Escape' || e.code === 'KeyP'){ if (open) closePause(); else openPause(); return; }
+    if (open){ if (e.code === 'KeyR' && !(NET && NET.guest)){ closePause(); startStage(G.si); } else if (e.code === 'KeyT') location.reload(); return; }
+  }
   const d = /^Digit(\d)$/.exec(e.code), n = d ? +d[1] : 0;
   if (G.mode === 'title'){ if (e.code === 'Enter') startRun(0); }
   else if (G.mode === 'pick'){ if (n >= 1 && n <= 3) pickUp(n-1); }
@@ -730,7 +735,7 @@ function startStage(i){
   for (const h of hazards){ scene.remove(h.m); h.m.material.dispose(); } hazards.length = 0;
   clearParts(); G.events.length = 0; $('fx').innerHTML = ''; document.body.classList.remove('cine');
   boss = null; $('boss').style.display = 'none'; $('go').classList.remove('on'); hint('');
-  ['start','clear','end'].forEach(id => $(id).classList.add('hidden'));
+  ['start','clear','end','pause'].forEach(id => $(id).classList.add('hidden')); G.paused = false; document.body.classList.remove('paused');
   buildWorld(st.theme, zs[zs.length-1].right, zs.slice(0,-1).map(z => z.right));
   PL.forEach((P,k) => {
     const want = NET && NET.host && NET.conn && k === 1 ? (NET.guestCh || 0) : ((SAVE.ch && SAVE.ch[k]) || 0);   // 連線時夥伴的角色由他自己選
@@ -794,6 +799,24 @@ function showOver(){
   $('end').classList.remove('hidden'); if (NET && NET.host) NET.ui('end');
 }
 $('retryBtn').onclick = () => { if (G.mode === 'overMenu') startStage(G.si); };
+// ── 暫停 ──
+function openPause(){
+  if (G.mode !== 'play' || !$('pause').classList.contains('hidden')) return;
+  const guest = NET && NET.guest;
+  $('pRestart').style.display = guest ? 'none' : ''; $('pHome').textContent = guest ? '離開房間　T' : '回首頁　T';
+  $('pNote').textContent = !(NET && NET.on) ? '' : guest ? '連線中：你打開選單時戰鬥不會停下來' : '連線中：你暫停時夥伴也會一起停下';
+  $('pause').classList.remove('hidden');
+  if (!guest){ G.paused = true; G.pauseAt = G.rt; document.body.classList.add('paused'); }   // 連線的夥伴沒辦法讓房主的戰鬥停下，所以只開選單
+}
+function closePause(){
+  if ($('pause').classList.contains('hidden')) return;
+  $('pause').classList.add('hidden'); document.body.classList.remove('paused');
+  if (G.paused){ G.paused = false; if (typeof EN !== 'undefined') EN.delay(G.rt - G.pauseAt); IN.forEach(n => { n.p = {}; }); }   // 暫停期間按下的鍵不算數
+}
+$('pauseBtn').onclick = openPause; $('pResume').onclick = closePause;
+$('pRestart').onclick = () => { closePause(); startStage(G.si); };
+$('pHome').onclick = () => location.reload();
+document.addEventListener('visibilitychange', () => { if (document.hidden) openPause(); });   // 切到別的分頁或鎖螢幕時自動暫停
 $('titleBtn').onclick = () => location.reload();
 
 // ───────────────────────── 介面 ─────────────────────────
@@ -807,6 +830,7 @@ function updHud(){
   $('drum').style.transform = `scale(${1 + .22*Math.exp(-f*9)})`;
   const rg = $('ring').style; rg.transform = `scale(${1 + (1-f)*1.5})`; rg.opacity = .15 + f*.8;
   $('time').textContent = fmtTime(G.time);
+  const pb = $('pauseBtn'), showPb = G.mode === 'play'; if (pb._on !== showPb){ pb._on = showPb; pb.style.display = showPb ? 'grid' : 'none'; if (!showPb) closePause(); }
   $('buff').textContent = G.rt < (G.enBuffUntil || 0) ? '言靈　攻擊 ×1.5' : '';
   const ps = active();
   const key = ps.map(P => [P.hp|0, P.ki|0, P.shur, Math.ceil(Math.max(0,P.smokeCD)), P.dead]).join() + [UP.shurMax, UP.hpMax, G.score, G.combo, boss ? boss.hp|0 : 0].join();
@@ -830,10 +854,11 @@ function frame(now){
   pollPads(raw);
   let dt = raw;
   if (G.freeze > 0){ G.freeze -= raw; dt = 0; }
+  if (G.paused) dt = 0;
   if (G.slowT > 0){ G.slowT -= raw; dt *= .3; }
   if (IS3D) cam.yaw += ((camKeys.KeyE?1:0)-(camKeys.KeyQ?1:0)) * 2.2 * raw;
   const guest = NET && NET.guest;   // 加入房間的一方不跑模擬，只照房主傳來的狀態畫
-  if (G.mode === 'play' && !guest) G.time += raw;
+  if (G.mode === 'play' && !guest && !G.paused) G.time += raw;
   const running = G.mode === 'play' || G.mode === 'clear' || G.mode === 'over';
   if (guest) NET.guestFrame(raw);
   else if (running && dt > 0){

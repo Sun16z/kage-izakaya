@@ -1,6 +1,6 @@
 'use strict';
 // 影之居酒屋：共用核心。2.5D 與 3D 兩個版本用同一套引擎，只差鏡頭與場地寬度。
-const VERSION = '1117c';   // 顯示在標題畫面角落，用來確認看到的是不是最新版
+const VERSION = '1117d';   // 顯示在標題畫面角落，用來確認看到的是不是最新版
 const IS3D = window.MODE === '3d';
 // 觸控裝置（手機、平板）：顯示虛擬搖桿與按鈕，並降低畫質負擔
 const TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window || /[?&]touch=1/.test(location.search);
@@ -66,6 +66,15 @@ document.body.insertAdjacentHTML('beforeend', `
 <div id="quiz"><div id="qHead"><button id="qSay">再聽一次</button><b id="qText"></b><span id="qRes"></span></div>
   <div id="qOpts"><button data-k="1"><i>1</i><span></span></button><button data-k="2"><i>2</i><span></span></button><button data-k="3"><i>3</i><span></span></button></div>
   <div id="qBar"><i></i></div></div>
+<button id="pauseBtn" aria-label="暫停"><i></i><i></i></button>
+<div id="pause" class="overlay hidden">
+  <div>
+    <h2>暫停</h2><p class="sub" id="pNote"></p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <button class="btn" id="pResume">繼續　Esc</button><button class="btn dim" id="pRestart">重來本關　R</button><button class="btn dim" id="pHome">回首頁　T</button>
+    </div>
+  </div>
+</div>
 <div id="clear" class="overlay hidden">
   <div>
     <div class="wrap"><div id="rank">S</div><div><h2 id="clearTitle"></h2><div class="stats" id="clearStats"></div></div></div>

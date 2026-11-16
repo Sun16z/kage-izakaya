@@ -210,6 +210,8 @@ const EN = (() => {
       return `<div class="enrev"><div class="enhead">片語　答對<b>${seen.filter(s => s.ok).length} / ${seen.length}</b><small>點一下可以再聽一次</small></div>` +
         uniq.map(u => `<button class="ph ${u.ok ? '' : 'miss'}" data-i="${u.i}"><em>${u.ok ? '✓' : '✗'}</em>${PHRASES[u.i][0]}<span>${PHRASES[u.i][1]}</span></button>`).join('') + '</div>';
     },
+    // 暫停結束後，把作答時間與加成的期限往後延同樣的長度
+    delay(d){ if (q) q.t0 += d; nextAt += d; if (G.enBuffUntil) G.enBuffUntil += d; },
     get q(){ return q; }, get seen(){ return seen; },
   };
 })();
